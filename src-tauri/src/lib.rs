@@ -34,6 +34,10 @@ fn show_main(app: &tauri::AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
+        // 单实例必须最先注册：二次启动时唤起已有窗口而不是开新进程
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main(app);
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
