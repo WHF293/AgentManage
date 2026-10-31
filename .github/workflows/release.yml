@@ -1,0 +1,121 @@
+name: Release AgentHub (Windows amd64 exe)
+
+# 发布口径：
+# - 推送 v* tag → 全量发布：构建 Windows amd64 exe（--no-bundle，仅 exe 不做安装包），
+#   以 AgentHub_v{version}_x64.exe 名义进 GitHub Release
+# - Actions 手动触发 → 从 main 最新提交构建并发布（补传 / 试跑场景）
+# 项目约定（AGENTS.md）：只打包 amd64 exe，不产出 arm64 / nsis / msi。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Windows amd64 exe
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 发布守卫：tag 必须位于 main 分支历史上（防绕过受保护分支发版）
+      - name: Verify tag is on main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          if git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "tag ${GITHUB_REF_NAME} 位于 main 分支历史上，允许发布"
+          else
+            echo "::error::tag ${GITHUB_REF_NAME} 的提交不在 main 分支上，拒绝发布"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "VERSION_TAG=v${VERSION}" >> "$GITHUB_ENV"
+          echo "目标 Release：v${VERSION}"
+
+      # 从上一个可到达 tag 到当前 HEAD 的提交主题生成变更列表（conventional commits）
+      - name: Generate release notes
+        id: changelog
+        shell: bash
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "HEAD^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            SUBJECTS=$(git log --pretty=format:"%s" "${PREV_TAG}..HEAD")
+          else
+            SUBJECTS=$(git log --pretty=format:"%s")
+          fi
+          NUMBERED=$(echo "$SUBJECTS" | sed '/^$/d' | awk '{printf "%d. %s\n", NR, $0}')
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "## 更新内容"
+            echo ""
+            echo "$NUMBERED"
+            echo ""
+            echo "下载下方 Assets 中的 AgentHub_v${VERSION}_x64.exe 直接运行（免安装，单文件）。"
+            echo ""
+            echo "## 安全提示"
+            echo ""
+            echo "本应用未购买代码签名证书，首次运行时 Windows SmartScreen / Defender 可能提示「已保护你的电脑」，属无签名二进制的常见提示，exe 由 GitHub Actions 从仓库源码构建，可自行审计。"
+            echo "处理方式：点击「更多信息」→「仍要运行」。"
+            echo ""
+            echo "数据全部保存在本机 ~/.agenthub/，不会外发。"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build exe (amd64, no bundle)
+        run: pnpm build:exe
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          cp src-tauri/target/release/agenthub.exe "AgentHub_v${VERSION}_x64.exe"
+          ls -la "AgentHub_v${VERSION}_x64.exe"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          name: AgentHub ${{ env.VERSION_TAG }}
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: false
+          files: AgentHub_v*_x64.exe
+          fail_on_unmatched_files: true

@@ -1,0 +1,12 @@
+# AgentHub 工作区忽略
+.ai/
+local_docs/
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.workbuddy/
+*.log
+
+# 本地产物（发布走 GitHub Actions，exe 不入库）
+AgentHub-*.exe
