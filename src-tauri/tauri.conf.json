@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "AgentHub — AI Agent 统一管理",
-        "width": 1200,
-        "height": 800,
+        "width": 1600,
+        "height": 1100,
         "minWidth": 960,
         "minHeight": 640,
         "center": true,

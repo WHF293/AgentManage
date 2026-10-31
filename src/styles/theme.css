@@ -262,6 +262,28 @@ body {
   }
 }
 
+/* 标题栏版本徽标（点击检查更新） */
+.ver-chip {
+  height: 22px;
+  align-self: center;
+  margin-right: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-strong);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: Consolas, monospace;
+  cursor: pointer;
+  flex: none;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.ver-chip:hover {
+  transform: scale(1.05);
+  border-color: var(--color-primary);
+}
+
 /* 通用信息弹窗按钮（右上角圆形 icon 按钮） */
 .icon-round {
   width: 30px;
@@ -299,7 +321,21 @@ body {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  height: 360px;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+/* 描述多行截断，hover 走 title tooltip 显示全部 */
+.desc-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 9;
+  line-clamp: 9;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 1.65;
 }
 .item-card:hover {
   transform: scale(1.02);

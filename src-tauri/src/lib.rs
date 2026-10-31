@@ -9,6 +9,7 @@ pub mod migrate;
 pub mod modelfetch;
 pub mod providers;
 pub mod store;
+pub mod update;
 pub mod usage;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -120,6 +121,8 @@ pub fn run() {
             memory::project_sync,
             memory::project_consolidate,
             commands::set_close_to_tray,
+            update::update_check,
+            update::update_install,
         ])
         .on_window_event(|window, event| {
             // 关闭行为：默认关到托盘（设置岛可切换为直接退出）

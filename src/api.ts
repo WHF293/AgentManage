@@ -276,6 +276,22 @@ export const usageOverview = (range: string) =>
 
 export const usageMatrix = () => invoke<MatrixCell[]>('usage_matrix');
 
+// ─── 在线更新 ───
+
+export interface UpdateCheckInfo {
+  current: string;
+  latest: string;
+  has_update: boolean;
+  asset_name: string;
+  asset_url: string;
+  release_url: string;
+}
+
+export const updateCheck = () => invoke<UpdateCheckInfo>('update_check');
+
+export const updateInstall = (assetUrl: string) =>
+  invoke<void>('update_install', { assetUrl });
+
 // ─── M7 Skill 市场 ───
 
 export interface MarketSkill {

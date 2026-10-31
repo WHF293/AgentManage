@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
+import { listen } from '@tauri-apps/api/event';
 import { useDesktopChrome } from '../useDesktopChrome';
 import { useThemeStore } from '../../stores/theme';
+import { toast } from '../../stores/ui';
+import { updateCheck, updateInstall, type UpdateCheckInfo } from '../../api';
+import { ConfirmDialog } from './ConfirmDialog';
 import { LogoMark } from './LogoMark';
 
 /**
@@ -16,6 +21,61 @@ export function TitleBar() {
   const { desktopChrome, canControlWindow } = useDesktopChrome();
   const { resolved, setMode } = useThemeStore();
   const [isMaximized, setIsMaximized] = useState(false);
+  const [ver, setVer] = useState('');
+  const [updState, setUpdState] = useState<'idle' | 'checking' | 'downloading'>('idle');
+  const [updInfo, setUpdInfo] = useState<UpdateCheckInfo | null>(null);
+  const [confirmUpdate, setConfirmUpdate] = useState(false);
+  const [dlPercent, setDlPercent] = useState(0);
+
+  useEffect(() => {
+    void getVersion()
+      .then(setVer)
+      .catch(() => {});
+    let un: (() => void) | null = null;
+    listen<{ received: number; total: number }>('update-download-progress', (e) => {
+      const pct = e.payload.total > 0 ? Math.round((e.payload.received / e.payload.total) * 100) : 0;
+      setDlPercent(pct);
+    })
+      .then((f) => {
+        un = f;
+      })
+      .catch(() => {});
+    return () => {
+      un?.();
+    };
+  }, []);
+
+  const checkUpdate = async () => {
+    if (updState !== 'idle') return;
+    setUpdState('checking');
+    try {
+      const info = await updateCheck();
+      if (!info.has_update) {
+        toast(`已是最新版本 v${info.current}`);
+        setUpdState('idle');
+      } else {
+        setUpdInfo(info);
+        setConfirmUpdate(true);
+        setUpdState('idle');
+      }
+    } catch (e) {
+      toast(`检查更新失败：${e instanceof Error ? e.message : String(e)}`, 'err');
+      setUpdState('idle');
+    }
+  };
+
+  const applyUpdate = async () => {
+    if (!updInfo) return;
+    setConfirmUpdate(false);
+    setUpdState('downloading');
+    setDlPercent(0);
+    try {
+      await updateInstall(updInfo.asset_url); // 成功后应用自动退出并由 bat 重启新版
+    } catch (e) {
+      toast(`更新失败：${e instanceof Error ? e.message : String(e)}`, 'err');
+      setUpdState('idle');
+    }
+  };
 
   useEffect(() => {
     if (!canControlWindow) return;
@@ -72,6 +132,24 @@ export function TitleBar() {
       <div className="flex h-full items-stretch">
         <button
           type="button"
+          className="ver-chip"
+          title={
+            updState === 'checking'
+              ? '正在检查更新…'
+              : updState === 'downloading'
+                ? `正在下载更新 ${dlPercent}%`
+                : `v${ver || '…'} · 点击检查更新`
+          }
+          onClick={() => void checkUpdate()}
+        >
+          {updState === 'checking'
+            ? '检查中…'
+            : updState === 'downloading'
+              ? `更新 ${dlPercent}%`
+              : `v${ver || '…'}`}
+        </button>
+        <button
+          type="button"
           aria-label="切换主题"
           title={`主题：${resolved === 'dark' ? '深色' : '浅色'}（点击切换）`}
           className="winbtn"
@@ -110,6 +188,16 @@ export function TitleBar() {
           </svg>
         </button>
       </div>
+
+      {confirmUpdate && updInfo && (
+        <ConfirmDialog
+          title="发现新版本"
+          message={`当前版本 v${updInfo.current} → 最新版本 v${updInfo.latest}\n\n点击「立即更新」将自动下载新版本并替换重启（下载完成后应用会短暂退出并自动拉起新版）。`}
+          confirmLabel="立即更新"
+          onConfirm={() => void applyUpdate()}
+          onCancel={() => setConfirmUpdate(false)}
+        />
+      )}
     </div>
   );
 }
