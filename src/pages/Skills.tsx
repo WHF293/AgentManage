@@ -472,7 +472,11 @@ export function SkillsPage() {
                   </span>
                 )}
               </div>
-              <div className="ds" style={{ minHeight: 18 }}>
+              <div
+                className="ds desc-clamp"
+                style={{ flex: 1, minHeight: 0 }}
+                title={item.description ?? undefined}
+              >
                 {item.description ?? '—'}
               </div>
               <div className="card-actions">

@@ -27,6 +27,7 @@ echarts.use([
   TooltipComponent,
   BarChart,
   LineChart,
+  PieChart,
   CanvasRenderer,
 ]);
 
@@ -754,12 +755,20 @@ export function UsagePage() {
         </div>
       )}
 
-      {/* 按模型细分（当前上下文） */}
-      <div>
-        <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
-          按模型细分（Top 8 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]}）
+      {/* 按模型细分：柱状 + 饼图 双图并排 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
+            按模型细分（Top 8 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]}）
+          </div>
+          <ModelBars overview={overview} agent={agent} />
         </div>
-        <ModelBars overview={overview} agent={agent} />
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
+            按模型占比（饼图 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]}）
+          </div>
+          <ModelPie overview={overview} agent={agent} />
+        </div>
       </div>
 
       <div style={{ fontSize: 10.5, color: 'var(--color-text-3)', marginTop: 10 }}>
@@ -854,6 +863,46 @@ function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent:
             fontFamily: 'Consolas, monospace',
             fontSize: 10.5,
             formatter: (p: { value: number }) => fmtTok(p.value),
+          },
+        },
+      ],
+    } satisfies echarts.EChartsCoreOption;
+  }, [models]);
+  return <div ref={ref} style={{ width: '100%', height: Math.max(160, (models.length || 1) * 34 + 40) }} />;
+}
+
+/** 按模型占比（环形饼图，与柱状同数据源；hover 显示 token 数） */
+function ModelPie({ overview, agent }: { overview: UsageOverview | null; agent: AgentFilter }) {
+  const models = useMemo(
+    () => (overview?.models ?? []).filter((m) => agent === 'all' || m.agent === agent),
+    [overview, agent],
+  );
+  const ref = useEChart(() => {
+    const c = themeColors();
+    const sorted = [...models].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
+    const data = sorted.map((m) => ({
+      name: `${AGENT_LABEL[m.agent] ?? m.agent}·${m.model || '(unknown)'}`,
+      value: m.tokens,
+      itemStyle: { color: agentColor(m.agent) },
+    }));
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        formatter: (p: { name: string; value: number; percent: number }) =>
+          `${p.name}<br/>${fmtTok(p.value)} tok（${p.percent}%）`,
+      },
+      legend: { type: 'scroll', bottom: 0, left: 'center', textStyle: { color: c.text3, fontSize: 10 } },
+      series: [
+        {
+          type: 'pie',
+          radius: ['38%', '68%'],
+          center: ['50%', '44%'],
+          data,
+          itemStyle: { borderRadius: 4, borderColor: 'transparent', borderWidth: 2 },
+          label: { show: false },
+          emphasis: {
+            label: { show: true, formatter: '{b}\n{d}%', color: c.text2, fontSize: 11 },
           },
         },
       ],

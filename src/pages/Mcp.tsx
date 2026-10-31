@@ -450,7 +450,7 @@ export function McpPage() {
           </div>
         ) : (
           items.map((item) => (
-            <div className="item-card" key={item.name}>
+            <div className="item-card sm" key={item.name}>
               <div className="card-top">
                 <span
                   className={`sw${item.enabled_wb || item.enabled_zcode ? ' on' : ''}`}
@@ -461,10 +461,14 @@ export function McpPage() {
                   <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.name}
                   </div>
-                  <div className="ds" style={{ fontFamily: 'Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.type} · {item.command ?? item.url ?? '—'}
-                  </div>
                 </div>
+              </div>
+              <div
+                className="ds desc-clamp"
+                style={{ flex: 1, minHeight: 0, fontFamily: 'Consolas, monospace' }}
+                title={`${item.type} · ${item.command ?? item.url ?? '—'}`}
+              >
+                {item.type} · {item.command ?? item.url ?? '—'}
               </div>
               <div className="card-actions">
                 <span

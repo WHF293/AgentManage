@@ -324,6 +324,14 @@ body {
   height: 360px;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+/* 矮卡（MCP / Models）：180px，描述 clamp 行数相应减少 */
+.item-card.sm {
+  height: 180px;
+}
+.item-card.sm .desc-clamp {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
 /* 描述多行截断，hover 走 title tooltip 显示全部 */
 .desc-clamp {
   display: -webkit-box;

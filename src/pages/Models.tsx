@@ -296,7 +296,7 @@ export function ModelsPage() {
             v.endsWith(p.id),
           );
           return (
-            <div className="item-card" key={p.id}>
+            <div className="item-card sm" key={p.id}>
               <div className="card-top">
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
