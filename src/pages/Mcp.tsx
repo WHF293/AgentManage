@@ -443,52 +443,57 @@ export function McpPage() {
         </div>
       )}
 
-      <div className="list">
+      <div className="item-grid">
         {items.length === 0 ? (
-          <div className="li" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
+          <div className="item-card" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
             统一定义为空 —— 点上方「收编」把双端现有 server 纳入管理，或新增。
           </div>
         ) : (
           items.map((item) => (
-            <div className="li" key={item.name}>
-              <span
-                className={`sw${item.enabled_wb || item.enabled_zcode ? ' on' : ''}`}
-                title="点击切换双端启用（任一端启用即亮）"
-                onClick={() => toggle(item, item.enabled_wb ? 'workbuddy' : 'zcode')}
-              />
-              <div className="ic">⌗</div>
-              <div className="grow">
-                <div className="nm">{item.name}</div>
-                <div className="ds" style={{ fontFamily: 'Consolas, monospace' }}>
-                  {item.type} · {item.command ?? item.url ?? '—'}
+            <div className="item-card" key={item.name}>
+              <div className="card-top">
+                <span
+                  className={`sw${item.enabled_wb || item.enabled_zcode ? ' on' : ''}`}
+                  title="点击切换双端启用（任一端启用即亮）"
+                  onClick={() => toggle(item, item.enabled_wb ? 'workbuddy' : 'zcode')}
+                />
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.name}
+                  </div>
+                  <div className="ds" style={{ fontFamily: 'Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.type} · {item.command ?? item.url ?? '—'}
+                  </div>
                 </div>
               </div>
-              <span
-                className={`chip ${STATUS_COLOR[item.wb_status]}`}
-                style={{ cursor: 'pointer' }}
-                title="点击切换 WB 启用态"
-                onClick={() => toggle(item, 'workbuddy')}
-              >
-                WB {STATUS_TEXT[item.wb_status]}
-              </span>
-              <span
-                className={`chip ${STATUS_COLOR[item.zcode_status]}`}
-                style={{ cursor: item.zcode_unsupported ? 'default' : 'pointer' }}
-                title={item.zcode_unsupported ? undefined : '点击切换 ZCode 启用态'}
-                onClick={item.zcode_unsupported ? undefined : () => toggle(item, 'zcode')}
-              >
-                ZCode {STATUS_TEXT[item.zcode_status]}
-              </span>
-              <span
-                className="chip off"
-                style={{ cursor: 'pointer' }}
-                onClick={() => setEditing(item)}
-              >
-                编辑
-              </span>
-              <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => remove(item)}>
-                删除
-              </span>
+              <div className="card-actions">
+                <span
+                  className={`chip ${STATUS_COLOR[item.wb_status]}`}
+                  style={{ cursor: 'pointer' }}
+                  title="点击切换 WB 启用态"
+                  onClick={() => toggle(item, 'workbuddy')}
+                >
+                  WB {STATUS_TEXT[item.wb_status]}
+                </span>
+                <span
+                  className={`chip ${STATUS_COLOR[item.zcode_status]}`}
+                  style={{ cursor: item.zcode_unsupported ? 'default' : 'pointer' }}
+                  title={item.zcode_unsupported ? undefined : '点击切换 ZCode 启用态'}
+                  onClick={item.zcode_unsupported ? undefined : () => toggle(item, 'zcode')}
+                >
+                  ZCode {STATUS_TEXT[item.zcode_status]}
+                </span>
+                <span
+                  className="chip off"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setEditing(item)}
+                >
+                  编辑
+                </span>
+                <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => remove(item)}>
+                  删除
+                </span>
+              </div>
             </div>
           ))
         )}

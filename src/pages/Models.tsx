@@ -290,39 +290,47 @@ export function ModelsPage() {
         </div>
       )}
 
-      <div className="list">
+      <div className="item-grid">
         {providers.map((p) => {
           const selectedEntry = Object.entries(data?.selected_keys ?? {}).find(([, v]) =>
             v.endsWith(p.id),
           );
           return (
-            <div className="li" key={p.id}>
-              <div className="ic">✦</div>
-              <div className="grow">
-                <div className="nm">
-                  {p.name}
-                  {p.builtin && <span className="chip off" style={{ marginLeft: 6 }}>builtin</span>}
-                  {selectedEntry && (
-                    <span className="chip ok" style={{ marginLeft: 6 }}>
-                      默认 · {selectedEntry[0]}
-                    </span>
-                  )}
-                </div>
-                <div className="ds" style={{ fontFamily: 'Consolas, monospace' }}>
-                  {p.kind} · {p.base_url || '—'} · {p.models.length} 个模型 · Key{p.has_api_key ? '已配置' : '未配置'}
+            <div className="item-card" key={p.id}>
+              <div className="card-top">
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.name}
+                    {p.builtin && <span className="chip off" style={{ marginLeft: 6 }}>builtin</span>}
+                    {selectedEntry && (
+                      <span className="chip ok" style={{ marginLeft: 6 }}>
+                        默认 · {selectedEntry[0]}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className="ds"
+                    style={{ fontFamily: 'Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {p.base_url || '—'}
+                  </div>
                 </div>
               </div>
-              <span className={`chip ${p.kind === 'anthropic' ? 'ok' : 'off'}`}>{p.kind}</span>
-              <span className="chip off" style={{ cursor: 'pointer' }} onClick={() => setEditing(p)}>编辑</span>
-              <span className="chip warn" style={{ cursor: 'pointer' }} onClick={() => setDefault(p)}>设默认</span>
-              {!p.builtin && (
-                <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => remove(p)}>删除</span>
-              )}
+              <div className="card-actions">
+                <span className={`chip ${p.kind === 'anthropic' ? 'ok' : 'off'}`}>{p.kind}</span>
+                <span className="chip off">{p.models.length} 个模型</span>
+                <span className="chip off">Key{p.has_api_key ? '已配置' : '未配置'}</span>
+                <span className="chip off" style={{ cursor: 'pointer' }} onClick={() => setEditing(p)}>编辑</span>
+                <span className="chip warn" style={{ cursor: 'pointer' }} onClick={() => setDefault(p)}>设默认</span>
+                {!p.builtin && (
+                  <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => remove(p)}>删除</span>
+                )}
+              </div>
             </div>
           );
         })}
         {providers.length === 0 && (
-          <div className="li" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
+          <div className="item-card" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
             未读取到 provider（~/.zcode/v2/config.json 为空或不存在）
           </div>
         )}

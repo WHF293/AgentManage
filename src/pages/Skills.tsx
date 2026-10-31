@@ -451,48 +451,54 @@ export function SkillsPage() {
             <div style={{ fontSize: 12 }}>切到「未安装」从市场安装，或用「一键迁移」从双端导入</div>
           </div>
         ) : (
-        <div className="list">
+        <div className="item-grid">
           {filtered.map((item) => (
-            <div className="li" key={item.name}>
-              <span
-                className={`sw${item.enabled ? ' on' : ''}`}
-                title={item.enabled ? '已启用（点击禁用）' : '已禁用（点击启用）'}
-                onClick={() => toggleEnabled(item.name, !item.enabled)}
-              />
-              <div className="grow">
-                <div className="nm">
-                  {item.name}
-                  {item.source && (
-                    <span className="chip off" style={{ marginLeft: 6 }}>
-                      {item.source}
-                      {item.source_ref ? ` · ${item.source_ref}` : ''}
-                    </span>
-                  )}
+            <div className="item-card" key={item.name}>
+              <div className="card-top">
+                <span
+                  className={`sw${item.enabled ? ' on' : ''}`}
+                  title={item.enabled ? '已启用（点击禁用）' : '已禁用（点击启用）'}
+                  onClick={() => toggleEnabled(item.name, !item.enabled)}
+                />
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.name}
+                  </div>
                 </div>
-                <div className="ds">{item.description ?? '—'}</div>
+                {item.source && (
+                  <span className="chip off" style={{ flex: 'none' }}>
+                    {item.source}
+                    {item.source_ref ? ` · ${item.source_ref}` : ''}
+                  </span>
+                )}
               </div>
-              <StatusChip
-                label={`WB ${STATUS_LABEL[item.wb]}`}
-                status={item.wb}
-                title={item.wb === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
-                onClick={
-                  item.wb === 'linked' ? undefined : () => fixOne(item.name, 'workbuddy')
-                }
-              />
-              {item.zcode_whole_link ? (
-                <span className="chip ok" title="ZCode 处于整目录链模式，随中央仓库生效">
-                  ZCode ✓ 整链
-                </span>
-              ) : (
+              <div className="ds" style={{ minHeight: 18 }}>
+                {item.description ?? '—'}
+              </div>
+              <div className="card-actions">
                 <StatusChip
-                  label={`ZCode ${STATUS_LABEL[item.zcode]}`}
-                  status={item.zcode}
-                  title={item.zcode === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
+                  label={`WB ${STATUS_LABEL[item.wb]}`}
+                  status={item.wb}
+                  title={item.wb === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
                   onClick={
-                    item.zcode === 'linked' ? undefined : () => fixOne(item.name, 'zcode')
+                    item.wb === 'linked' ? undefined : () => fixOne(item.name, 'workbuddy')
                   }
                 />
-              )}
+                {item.zcode_whole_link ? (
+                  <span className="chip ok" title="ZCode 处于整目录链模式，随中央仓库生效">
+                    ZCode ✓ 整链
+                  </span>
+                ) : (
+                  <StatusChip
+                    label={`ZCode ${STATUS_LABEL[item.zcode]}`}
+                    status={item.zcode}
+                    title={item.zcode === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
+                    onClick={
+                      item.zcode === 'linked' ? undefined : () => fixOne(item.name, 'zcode')
+                    }
+                  />
+                )}
+              </div>
             </div>
           ))}
         </div>

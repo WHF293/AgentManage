@@ -30,7 +30,7 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-type Granularity = 'day' | 'month' | 'year';
+type Granularity = 'day' | 'week' | 'month' | 'year';
 type ViewMode = 'calendar' | 'chart';
 type AgentFilter = 'all' | 'workbuddy' | 'zcode';
 
@@ -61,6 +61,18 @@ const todayStr = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const todayYm = () => todayStr().slice(0, 7);
+/** 该日期所在周的周一 */
+const mondayOf = (date: string): string => {
+  const d = new Date(`${date}T00:00:00`);
+  const lead = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - lead);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const shiftDate = (date: string, days: number): string => {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const shiftMonth = (ym: string, delta: number): string => {
   const [y, m] = ym.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -98,7 +110,10 @@ function buildBuckets(matrix: MatrixCell[]): {
     for (const b of [bDay, bMon, by]) {
       b.tokens += c.tokens;
       b.calls += c.calls;
-      b.details.push({ agent: c.agent, model: c.model, tokens: c.tokens });
+      // 同 agent-model 合并（月/年桶跨天重复出现，必须聚合而非逐条追加）
+      const ex = b.details.find((d) => d.agent === c.agent && d.model === c.model);
+      if (ex) ex.tokens += c.tokens;
+      else b.details.push({ agent: c.agent, model: c.model, tokens: c.tokens });
     }
   }
   return { byDay, byMonth, byYear };
@@ -125,28 +140,28 @@ const heatColor = (v: number, max: number): string => {
   return '#EAF6EF';
 };
 
-/** ECharts hook */
+/** ECharts hook：callback ref —— 容器挂载/卸载（如视图切换的条件渲染）时自动 init/dispose */
 function useEChart(factory: () => echarts.EChartsCoreOption, deps: unknown[]) {
-  const ref = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
   const { resolved } = useThemeStore();
   useEffect(() => {
-    if (!ref.current) return;
-    const chart = echarts.init(ref.current);
+    if (!el) return;
+    const chart = echarts.init(el);
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(ref.current);
+    ro.observe(el);
     return () => {
       ro.disconnect();
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [el]);
   useEffect(() => {
-    chartRef.current?.setOption(factory(), true);
+    if (chartRef.current) chartRef.current.setOption(factory(), true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resolved, ...deps]);
-  return ref;
+  }, [el, resolved, ...deps]);
+  return useCallback((node: HTMLDivElement | null) => setEl(node), []);
 }
 
 /**
@@ -159,6 +174,7 @@ export function UsagePage() {
   const [dayYm, setDayYm] = useState(todayYm()); // 日历视图当前月
   const [monY, setMonY] = useState(new Date().getFullYear()); // 月历视图当前年
   const [selectedDate, setSelectedDate] = useState(todayStr()); // 点日格选中的日期
+  const [weekStart, setWeekStart] = useState<string>(mondayOf(todayStr())); // 周视图当前周（周一）
   const [agent, setAgent] = useState<AgentFilter>('all');
   const [matrix, setMatrix] = useState<MatrixCell[] | null>(null);
   const [overview, setOverview] = useState<UsageOverview | null>(null);
@@ -205,9 +221,11 @@ export function UsagePage() {
   const overviewRange =
     granularity === 'day'
       ? `date:${selectedDate}`
-      : granularity === 'month'
-        ? `month:${dayYm}`
-        : 'all';
+      : granularity === 'week'
+        ? `week:${weekStart}`
+        : granularity === 'month'
+          ? `month:${dayYm}`
+          : 'all';
   useEffect(() => {
     void usageOverview(overviewRange)
       .then(setOverview)
@@ -267,6 +285,16 @@ export function UsagePage() {
     if (granularity === 'day') {
       cats = dayCells.filter((x) => x.day).map((x) => x.date!);
       title = `按天用量 · ${dayYm}`;
+      for (const a of agents) {
+        seriesData[a] = cats.map((d) => {
+          const b = filtered.byDay.get(d);
+          if (!b) return 0;
+          return b.details.filter((x) => x.agent === a).reduce((s, x) => s + x.tokens, 0);
+        });
+      }
+    } else if (granularity === 'week') {
+      cats = Array.from({ length: 7 }, (_, i) => shiftDate(weekStart, i));
+      title = `按天用量 · ${weekStart.slice(5)} ~ ${shiftDate(weekStart, 6).slice(5)}`;
       for (const a of agents) {
         seriesData[a] = cats.map((d) => {
           const b = filtered.byDay.get(d);
@@ -361,12 +389,15 @@ export function UsagePage() {
   const navLabel =
     granularity === 'day'
       ? dayYm
-      : granularity === 'month'
-        ? String(monY)
-        : '全部年份';
+      : granularity === 'week'
+        ? `${weekStart.slice(5)} ~ ${shiftDate(weekStart, 6).slice(5)}`
+        : granularity === 'month'
+          ? String(monY)
+          : '全部年份';
 
   const navShift = (delta: number) => {
     if (granularity === 'day') setDayYm(shiftMonth(dayYm, delta));
+    else if (granularity === 'week') setWeekStart(shiftDate(weekStart, delta * 7));
     else if (granularity === 'month') setMonY((y) => y + delta);
   };
 
@@ -399,6 +430,7 @@ export function UsagePage() {
       <div className="mb-3 flex items-center" style={{ gap: 8, flexWrap: 'wrap' }}>
         <b style={{ fontSize: 12, color: 'var(--color-text-2)' }}>粒度</b>
         {granularityChip('day', '日')}
+        {granularityChip('week', '周')}
         {granularityChip('month', '月')}
         {granularityChip('year', '年')}
         {granularity !== 'year' && (
@@ -550,11 +582,70 @@ export function UsagePage() {
             </>
           )}
 
+          {/* 周历：7 天格 */}
+          {granularity === 'week' && (
+            <>
+              <div className="flex items-center" style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', flex: 1 }}>
+                  周历 · {weekStart.slice(5)} ~ {shiftDate(weekStart, 6).slice(5)} · 点击日期查看当日 24h 曲线
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekStart(shiftDate(weekStart, -7))}>
+                  ‹
+                </button>
+                <span className="chip off" style={{ fontFamily: 'Consolas, monospace', fontSize: 11, padding: '3px 10px' }}>
+                  {weekStart.slice(5)} ~ {shiftDate(weekStart, 6).slice(5)}
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekStart(shiftDate(weekStart, 7))}>
+                  ›
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                {['一', '二', '三', '四', '五', '六', '日'].map((w, i) => {
+                  const date = shiftDate(weekStart, i);
+                  const b = filtered.byDay.get(date);
+                  return (
+                    <div
+                      key={date}
+                      className="hover-zoom"
+                      title={detailText(b, agent)}
+                      onClick={() => setSelectedDate(date)}
+                      style={{
+                        minHeight: 72,
+                        borderRadius: 10,
+                        padding: '6px 8px',
+                        cursor: 'pointer',
+                        background: heatColor(b?.tokens ?? 0, maxOfDay),
+                        border: date === selectedDate ? '1.5px solid var(--color-primary-strong)' : '1px solid var(--color-border)',
+                        color: b && b.tokens / maxOfDay > 0.35 ? '#fff' : 'var(--color-text-2)',
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 700 }}>周{w} · {date.slice(5)}</div>
+                      <div style={{ fontSize: 11, fontFamily: 'Consolas, monospace', marginTop: 4 }}>
+                        {b ? fmtTok(b.tokens) : '—'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
           {/* 月历：12 个月格 */}
           {granularity === 'month' && (
             <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', marginBottom: 8 }}>
-                月历 · {monY} · 点击月份下钻到日历
+              <div className="flex items-center" style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', flex: 1 }}>
+                  月历 · {monY} · 点击月份下钻到日历
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setMonY((y) => y - 1)}>
+                  ‹
+                </button>
+                <span className="chip off" style={{ fontFamily: 'Consolas, monospace', fontSize: 11, padding: '3px 10px' }}>
+                  {monY}
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setMonY((y) => y + 1)}>
+                  ›
+                </button>
               </div>
               <div className="grid grid-cols-4 gap-2.5">
                 {Array.from({ length: 12 }, (_, i) => {
@@ -595,8 +686,19 @@ export function UsagePage() {
           {/* 日历：当月逐日格 */}
           {granularity === 'day' && (
             <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', marginBottom: 8 }}>
-                日历 · {dayYm} · 点击日期查看当日 24h 曲线（当前：{selectedDate}）
+              <div className="flex items-center" style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', flex: 1 }}>
+                  日历 · {dayYm} · 点击日期查看当日 24h 曲线（当前：{selectedDate}）
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setDayYm(shiftMonth(dayYm, -1))}>
+                  ‹
+                </button>
+                <span className="chip off" style={{ fontFamily: 'Consolas, monospace', fontSize: 11, padding: '3px 10px' }}>
+                  {dayYm}
+                </span>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setDayYm(shiftMonth(dayYm, 1))}>
+                  ›
+                </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
                 {['一', '二', '三', '四', '五', '六', '日'].map((d) => (

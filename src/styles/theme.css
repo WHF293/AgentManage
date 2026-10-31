@@ -282,6 +282,44 @@ body {
   border-color: var(--color-primary);
   color: var(--color-primary-strong);
 }
+
+/* 列表 → 响应式圆角卡片网格（宽度足够时一行多张，随窗口变化） */
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+.item-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.item-card:hover {
+  transform: scale(1.02);
+  position: relative;
+  z-index: 2;
+  box-shadow: var(--shadow);
+}
+.item-card .card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.item-card .card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
 .li .ic {
   width: 30px;
   height: 30px;

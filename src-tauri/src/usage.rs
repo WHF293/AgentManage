@@ -761,6 +761,26 @@ fn parse_range(range: &str) -> Window {
         }
     }
 
+    if let Some(d) = range.strip_prefix("week:") {
+        // 周视图：week:YYYY-MM-DD（该周周一），7 天窗口
+        if let Ok(mon) = chrono::NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d") {
+            let start = mon.format("%Y-%m-%d 00:00:00").to_string();
+            let end = (mon + chrono::Duration::days(7))
+                .format("%Y-%m-%d 00:00:00")
+                .to_string();
+            return Window {
+                start,
+                end: end.clone(),
+                cal_start: mon.format("%Y-%m-%d").to_string(),
+                cal_end: (mon + chrono::Duration::days(6))
+                    .format("%Y-%m-%d")
+                    .to_string(),
+                is_day: false,
+                is_week_bars: true,
+            };
+        }
+    }
+
     let trailing = range
         .strip_prefix("trailing:")
         .and_then(|s| s.parse::<i64>().ok());
