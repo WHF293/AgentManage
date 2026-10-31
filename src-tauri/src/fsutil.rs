@@ -194,6 +194,16 @@ pub fn make_dir_link(link_path: &Path, target_dir: &Path, mode: LinkMode) -> Res
     }
 }
 
+/// 在 link_path 创建指向 target_file 的文件符号链接（link_path 必须不存在，由调用方先腾挪）。
+/// 单文件仅 symlink 可行：junction 只支持目录，copy 会让内容分叉违背统一语义，故失败即报错不降级。
+pub fn make_file_link(link_path: &Path, target_file: &Path) -> Res<()> {
+    if link_path.exists() || is_link(link_path) {
+        return Err(format!("链接位已存在：{}", link_path.display()));
+    }
+    std::os::windows::fs::symlink_file(target_file, link_path)
+        .map_err(|e| format!("文件 symlink 失败（需开发者模式或管理员权限）: {e}"))
+}
+
 /// FNV-1a 64：零依赖稳定 hash（内容级幂等 id / 漂移指纹共用）
 pub fn fnv1a(data: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

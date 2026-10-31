@@ -13,7 +13,7 @@ use crate::adapters::{self, wb, zcode};
 use crate::fsutil::{self, LinkMode, Res};
 use crate::store::{self, Store};
 
-fn eq_path(a: &str, b: &str) -> bool {
+pub(crate) fn eq_path(a: &str, b: &str) -> bool {
     a.replace('/', "\\").to_lowercase() == b.replace('/', "\\").to_lowercase()
 }
 

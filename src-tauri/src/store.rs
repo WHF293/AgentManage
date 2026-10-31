@@ -19,6 +19,10 @@ pub fn hub_dir() -> std::path::PathBuf {
 pub fn central_skills_dir() -> std::path::PathBuf {
     hub_dir().join("skills")
 }
+/// 全局记忆统一真身（双端符号链接共同指向）
+pub fn central_memory_md() -> std::path::PathBuf {
+    hub_dir().join("MEMORY.md")
+}
 pub fn backups_dir() -> std::path::PathBuf {
     hub_dir().join("backups")
 }
@@ -109,6 +113,15 @@ impl Store {
                 conn.execute_batch("ALTER TABLE usage_events ADD COLUMN credit REAL NOT NULL DEFAULT 0")
                     .map_err(|e| format!("credit 列迁移失败: {e}"))?;
             }
+            // v1.5：Models 岛 WB 写穿托管清单（WB models.json 中由 AgentHub 管理的条目 id ↔ provider）
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS wb_model_entries (
+                   entry_id TEXT PRIMARY KEY,
+                   provider_id TEXT NOT NULL,
+                   updated_at TEXT
+                 );",
+            )
+            .map_err(|e| format!("wb_model_entries 建表失败: {e}"))?;
             // 内置双市场（WB 市场为占位：接口探测未果前降级本地扫描）
             conn.execute(
                 "INSERT OR IGNORE INTO skill_sources(id, name, type, url, enabled) VALUES
@@ -127,6 +140,65 @@ pub fn log_op(conn: &Connection, action: &str, target: &str, detail: serde_json:
         "INSERT INTO op_log(action, target, detail_json, created_at) VALUES (?1, ?2, ?3, datetime('now','localtime'))",
         rusqlite::params![action, target, detail.to_string()],
     );
+}
+
+// ─── WB models.json 托管清单（M4 双端写穿） ───
+
+/// 某 provider 在 WB 侧托管的条目 id 列表
+pub fn wb_entries_for(conn: &Connection, provider_id: &str) -> Res<Vec<String>> {
+    let mut stmt = conn
+        .prepare("SELECT entry_id FROM wb_model_entries WHERE provider_id = ?1 ORDER BY entry_id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![provider_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+/// 全部托管映射 (provider_id, entry_id)，overview 归属判定用
+pub fn wb_entries_all(conn: &Connection) -> Res<Vec<(String, String)>> {
+    let mut stmt = conn
+        .prepare("SELECT provider_id, entry_id FROM wb_model_entries ORDER BY provider_id, entry_id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+/// 重写某 provider 的托管清单（同步成功后调用）
+pub fn wb_entries_replace(conn: &Connection, provider_id: &str, ids: &[String]) -> Res<()> {
+    conn.execute(
+        "DELETE FROM wb_model_entries WHERE provider_id = ?1",
+        rusqlite::params![provider_id],
+    )
+    .map_err(|e| e.to_string())?;
+    for id in ids {
+        conn.execute(
+            "INSERT OR REPLACE INTO wb_model_entries(entry_id, provider_id, updated_at)
+             VALUES (?1, ?2, datetime('now','localtime'))",
+            rusqlite::params![id, provider_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 删除某 provider 的全部托管记录，返回删除条数
+pub fn wb_entries_remove_provider(conn: &Connection, provider_id: &str) -> Res<usize> {
+    conn.execute(
+        "DELETE FROM wb_model_entries WHERE provider_id = ?1",
+        rusqlite::params![provider_id],
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn upsert_skill(

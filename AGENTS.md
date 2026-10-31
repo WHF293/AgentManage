@@ -4,12 +4,20 @@
 
 ## 项目概述
 
-**AgentHub** — AI Agent 统一管理工具（Tauri 2 Windows 桌面应用）：面向 WorkBuddy 与 ZCode 双 Agent 的 Skills / MCP / 第三方模型 / WB 多账号 / Memory / 用量分析一站式管理台，替代已卸载的 cc-switch。
+**AgentHub**（v0.2.0）— AI Agent 统一管理工具（Tauri 2 Windows 桌面应用）：面向 WorkBuddy
+与 ZCode 双 Agent 的 Skills / MCP / 第三方模型 / WB 多账号 / Memory / 用量分析一站式管理台，
+替代已卸载的 cc-switch。中央仓库一份配置、双端生效。
 
-- 技术栈：**Tauri v2 + React 19 + TypeScript + Zustand + UnoCSS + SQLite（rusqlite bundled）+ pnpm**
-- 中央存储：`~/.agenthub/`（agenthub.db 单一事实源 + skills/ 中央仓库 + backups/ 时间戳备份 + market-cache/）
-- UI：Islands 布局 + 侧栏 7 岛（Usage / Skills / MCP / Models / Account / Memory / Setting）+ 明暗双主题（CSS variables）
-- 里程碑：M0-M9 全部落地；数据侧已对齐双 Agent 官方口径（ZCode 累计 19 亿 / WB 请求级 24.5 亿）
+- 技术栈：**Tauri v2 + React 19 + TypeScript + Zustand + UnoCSS + ECharts 6（按需导入）+
+  SQLite（rusqlite bundled）+ reqwest 0.12（blocking + rustls-tls）+ pnpm**
+- 中央存储：`~/.agenthub/`（agenthub.db 单一事实源 + skills/ 中央仓库 + backups/ 时间戳备份
+  + market-cache/ + updates/ 在线更新下载区）
+- UI：Islands 布局 + 侧栏 7 岛（**Usage / Account / Skill / MCP / Model / Memory / Setting**，
+  单数文案定版）+ 明暗双主题（CSS variables，明/暗/跟随系统三态）
+- 外壳：自绘标题栏（decorations:false）+ 托盘（打开面板/退出，默认关到托盘）+ 单实例插件
+  （二次启动唤起已有窗口）+ 开机自启（tauri-plugin-autostart）
+- 里程碑：M0-M9 全部落地；在线更新已上线；数据侧已对齐双 Agent 官方口径
+  （ZCode 累计 19 亿 / WB 请求级 24.5 亿）
 
 ## AI 记忆统一存放（硬性）
 
@@ -31,10 +39,10 @@ pnpm install          # 安装依赖
 pnpm tauri:dev        # Tauri 桌面开发（Rust + 前端热更）
 pnpm dev              # 仅前端（浏览器预览，默认按桌面外壳渲染，?desktopTitlebar=0 关闭模拟）
 pnpm build            # tsc --noEmit + vite build（提交前必须通过）
-pnpm build:exe        # 打包：tauri build --no-bundle —— 只出 Windows amd64 exe（项目定版，勿改）
+pnpm build:exe        # 打包：tauri build —— Windows amd64 exe + NSIS 安装包（安装版定版）
 ```
 
-无头验收命令（不启 GUI）：
+无头验收命令（不启 GUI，打印 JSON / 文本报告）：
 
 ```bash
 agenthub.exe --migrate [--link-mode symlink|junction|copy]   # M1 skills 迁移
@@ -44,6 +52,7 @@ agenthub.exe --wb-status / --wb-save-slot <label>            # 账号岛探测/�
 agenthub.exe --usage-collect [range]                         # 用量双源采集 + 聚合
 agenthub.exe --market-refresh                                # Skill 市场目录刷新
 agenthub.exe --bridge-test <项目路径>                        # Memory 桥接 init/sync/consolidate
+agenthub.exe --unify-memory                                  # 全局记忆统一：真身 ~/.agenthub/MEMORY.md + 双端建链
 ```
 
 ## 目录结构
@@ -51,29 +60,45 @@ agenthub.exe --bridge-test <项目路径>                        # Memory 桥接
 ```
 src/                    前端
   api.ts                invoke 封装（TS 类型与 Rust serde 一一对应，字段保持 snake_case）
-  common/               useDesktopChrome / TitleBar（自绘外壳）/ ConfirmDialog / LogoMark
-  pages/                7 个功能岛（Usage 岛 = 原总览+用量合并）
-  stores/               nav / theme / ui(toast)
-  styles/theme.css      主题 token（侧栏/列表/卡片=中性灰，按钮与底色=清新绿，用户定版）
+  common/               useDesktopChrome / TitleBar（自绘外壳 + 版本徽标 + 更新入口）/
+                        ConfirmDialog（含 InputDialog）/ AgentCard / PageHeader / LogoMark
+  pages/                7 个功能岛（Dashboard = Usage 岛：双 Agent 健康卡 + 用量分析）
+  stores/               nav / theme（light|dark|system）/ ui（toast）
+  styles/theme.css      主题 token（侧栏/列表/卡片=中性灰，按钮与底色=清新绿，用户定版；
+                        WB=绿 / ZCode=天青蓝 双 Agent 身份色全局统一）
 src-tauri/src/
-  store.rs              SQLite 单一事实源 + schema 迁移（v1.x 增量 ALTER）
-  adapters/             wb.rs / zcode.rs —— 各 Agent 路径约定与资产扫描
+  store.rs              SQLite 单一事实源 + schema v1（11 表）+ v1.1~v1.5 增量迁移
+                        （headers_json / wb_slots TEXT 主键 / wb_session_seen / credit / wb_model_entries）
+  adapters/             mod.rs（agent_home + skills 目录扫描）/ wb.rs / zcode.rs —— 路径约定与资产探测
   fsutil.rs             软链三级策略（symlink→junction→copy）/ 原子写 / 备份 / fnv1a
   migrate.rs            M1：双端 skills 并集导入中央仓库 → WB 逐项链 → ZCode 整目录链
-  mcp.rs                统一 MCP 表 ↔ 双格式翻译（合并式写入：托管字段覆盖，timeout 等保留）
-  providers.rs          ZCode v2/config.json 直写（Key 只存目标文件不入库）
-  modelfetch.rs         /v1/models 候选链（/v{N} 先拼原样 → /v1/models → 后缀剥离 → 内置推荐兜底）
+  mcp.rs                统一 MCP 表 ↔ 双格式翻译（合并式写入：托管字段覆盖，timeout/headers 等保留）
+  providers.rs          ZCode v2/config.json 直写 + WB models.json 写穿（v1.5 托管清单）；
+                        Key 只存目标文件不入库
+  modelfetch.rs         /v1/models 候选链（models_url 覆写 → /v{N} 原样 → 剥离后缀兜底 →
+                        GLM 系网关内置推荐兜底；anthropic 原生 x-api-key 优先）
   market.rs             Skill 市场（anthropics/skills + obra/superpowers + cexll/myclaude，通用树扫描）
-  account.rs            WB 槽位：tasklist 检测 →（确认后关进程）→ 备份 → 恢复 → 校验 → 启动 → 回滚
-  memory.rs             全局记忆编辑 + .ai/ 桥接（init/sync/consolidate，FNV 块指纹漂移检测）
-  usage.rs              用量双源采集 + 聚合（见下「数据源」）
-.github/workflows/release.yml   tag v* → Windows amd64 exe → GitHub Release
+  account.rs            WB 槽位：tasklist 检测 →（UI 确认后关进程）→ 备份 → 恢复 → 校验 → 启动 → 回滚
+  memory.rs             全局记忆统一（真身 ~/.agenthub/MEMORY.md，双端路径建文件符号链接，幂等）
+                        + .ai/ 桥接（init/sync/consolidate，FNV 块指纹漂移检测）
+  usage.rs              用量双源采集 + 聚合（见下「关键约定」第 5/6 条）
+  update.rs             在线更新（NSIS 安装版，链路对齐 whf-stock-board 实证实现；仓库已公开全匿名）：
+                        检测 302 重定向主通道 → 公开 API 兜底；reqwest 直连下载安装包到
+                        ~/.agenthub/updates/（真实进度）；安装 = cmd 链 `ping -n 4 & "{setup}" /S
+                        /D={原目录} & start "{exe}"` 静默装回重启（raw_arg 传参、/D= 最后且不加引号、
+                        延迟 500ms 退出）
+  commands.rs           Skills 岛命令 + app_status + op_log + set_close_to_tray
+  lib.rs                插件注册（单实例最先）/ 托盘 / 启动即后台采集用量 / IPC 命令注册
+  main.rs               无头模式入口（--migrate 等七种）
+.github/workflows/release.yml   tag v* 或手动触发 → Windows amd64 NSIS 安装包 → GitHub Release
 ```
 
 ## 关键约定（改代码必读）
 
-1. **打包只出 amd64 exe**：`bundle.targets: []` + `pnpm build:exe`（tauri build --no-bundle）。
-   本版本 CLI 不接受 `--bundles none` / `"none"`，勿再尝试。
+1. **打包为 NSIS 安装版**：`bundle.targets: ["nsis"]` + `pnpm build:exe`（tauri build，产出
+   `bundle/nsis/AgentHub_{version}_x64-setup.exe`）；NSIS 走默认 currentUser 免管理员提权（同
+   whf-stock-board）。2026-10-31 起定版：旧「exe-only（targets:[] + --no-bundle）」方案已废弃
+   （历史坑：本版本 CLI 不接受 `--bundles none` / `"none"`，exe-only 曾用空数组 + `--no-bundle` 实现）。
 2. **Tauri IPC 多单词参数**一律收进单个 `input` 结构体（serde 自控），禁止散参 ——
    本版本 IPC 对 snake/camel 大小写映射不稳（踩过 `missing required key base_url`）。
 3. **写目标文件三步**：备份到 `~/.agenthub/backups/<域>-<时间戳>/` → 原子写（tmp+rename）→
@@ -81,30 +106,47 @@ src-tauri/src/
 4. **隐私红线**：WB auth 文件只做文件级复制永不读内容；usage 日志只取 usage/元数据字段，
    request.messages / response.text 正文永不入库；API Key 只存 ZCode 目标文件、不落 AgentHub 库。
 5. **用量数据源（实测定版，勿回退）**：
-   - ZCode：`~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表（SUM(input)=18.87 亿 ≈ 官方 18.9 亿；
-     rollout jsonl 只剩近期文件，已废弃，历史事件已一次性清除）
+   - ZCode：`~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表全表扫描（SUM(input)=18.87 亿 ≈
+     官方 18.9 亿；request_id = 主键 id 幂等去重）。rollout jsonl 只剩近期文件，已废弃，
+     历史事件已一次性清除
    - WB：`~/.workbuddy/projects/**/*.jsonl` 的 `providerData.rawUsage/usage`（请求级真实 usage；
      rawUsage.credit = 官方积分，与账单同源；prompt_tokens 含缓存命中 → input = prompt − 命中）
-   - 采集分批短锁（400 条/批）+ `usage-collect-progress` 事件推前端进度条 + COLLECTING 互斥防重入；
-     历史永久留存 `~/.agenthub/agenthub.db`，卸载双 Agent 后仍可查
-6. **软链策略**：ZCode 整目录链 → `~/.agenthub/skills`；WB 逐项链；symlink 探测失败降级 junction；
-   所有替换先备份实目录。
-7. **Skill 市场安装语义**：一律先进中央仓库再分发；「未添加 ≠ 禁用」——单端独有 server 不铺到另一端。
-8. **新增 Rust 依赖**（如有）：注意用户机器 rustc 1.98 / cargo 邻域源（rsproxy），锁小版本防漂移。
-9. `pnpm build`（tsc 严格模式）与 `cargo check` 双绿才算编译通过；UI 文案中文为主。
+   - 字节偏移增量解析 + mtime 变化重扫兜底 + request_id 去重
+6. **采集不卡 UI**：usage 命令全部 async + 分批短锁（400 条/批）+ `usage-collect-progress`
+   事件推前端进度条 + COLLECTING 原子互斥防重入；应用启动即后台线程独立 WAL 连接全量+增量采集
+   （不依赖页面打开）；历史永久留存 `~/.agenthub/agenthub.db`，卸载双 Agent 后仍可查
+7. **软链策略**：ZCode 整目录链 → `~/.agenthub/skills`；WB 逐项链；symlink 探测失败降级 junction；
+   所有替换先备份实目录。注意 WB 是「活端」会自发重写 skills 目录打掉软链（云同步/CDN 下载），
+   ZCode 是「静端」—— WB 侧 diverged 巡检是已知待办
+8. **Skill 市场安装语义**：一律先进中央仓库再分发；「未添加 ≠ 禁用」——单端独有 server 不铺到另一端
+9. **在线更新链路（NSIS 安装版，仓库已公开全匿名）**：update_check 检测双通道（302 重定向主通道，
+   免匿名 API 限流 → 公开 API 兜底，资产 `AgentHub_v*_x64-setup.exe`）→ update_install reqwest
+   直连下载安装包到 `~/.agenthub/updates/`（真实进度事件 `update-download-progress`）→ NSIS
+   `/S /D={原目录}` 静默装回 + start 重启；版本徽标在标题栏（gh CLI 通道随私有仓库时代于
+   2026-10-31 移除）
+10. **新增 Rust 依赖**（如有）：注意用户机器 rustc 1.98 / cargo 邻域源（rsproxy），锁小版本防漂移
+11. `pnpm build`（tsc 严格模式）与 `cargo check` 双绿才算编译通过；UI 文案中文为主
 
 ## 发布流程
 
 1. 提交遵循 conventional commits（feat: / fix: / refactor: …）——Release 描述由提交主题自动生成。
-2. 本地 `pnpm build:exe` 点验通过后，打 tag：`git tag v0.1.0 && git push origin v0.1.0`。
-3. GitHub Actions（`.github/workflows/release.yml`）：windows-latest 构建 amd64 exe →
-   生成带编号变更列表 → 创建 Release 并上传 `AgentHub_v*_x64.exe`。
-4. 守卫：tag 必须在 main 分支历史上。
+2. 本地 `pnpm build:exe` 点验通过后，打 tag 推送（版本号以 `src-tauri/tauri.conf.json` 为准，
+   与 package.json 保持同步）：`git tag v0.2.0 && git push origin v0.2.0`。
+3. GitHub Actions（`.github/workflows/release.yml`）：tag 触发（或 workflow_dispatch 手动触发补传）；
+   守卫 tag 必须在 main 分支历史上；windows-latest 构建 amd64 NSIS 安装包 → 生成带编号变更列表 →
+   创建 Release 并上传 `AgentHub_v*_x64-setup.exe`（Release 说明含 SmartScreen 无签名提示话术）。
 
 ## 踩坑备忘（摘要，详见 .ai/memory/2026-10-31.md）
 
 - rusqlite `last_insert_rowid()` 在 ON CONFLICT UPDATE 路径不可靠 → upsert 后显式 SELECT。
 - SELECT 列与 `row.get` 索引一一对应（加列后全体 +1）。
-- `bundle.targets` 不接受 "none"；exe-only = 空数组 + `--no-bundle`。
-- 打包前必须 `taskkill agenthub.exe`（运行中的 exe 拒绝替换）。
+- `bundle.targets` 不接受 "none"；旧 exe-only 方案 = 空数组 + `--no-bundle`（2026-10-31 起改 NSIS 安装版）。
+- NSIS 静默更新：`/S /D=<dir>` 中 `/D=` 必须是最后一个参数且不加引号（NSIS 取到行尾）；cmd 链
+  整条命令必须 `CommandExt::raw_arg` 原样传（普通 arg 会转义出 `\"`，cmd 不认）；spawn 后延迟
+  500ms 再 `app.exit(0)`，别把 cmd 链一并带走（复用 whf-stock-board 实证参数）。
+- 打包前必须 `taskkill agenthub.exe`（运行中的 exe 拒绝替换，os error 5）。
 - sed 改过的文件必须重新 Read 再 Edit。
+- Tauri dev 端口 1420 被残留 vite 占用时 netstat 定位 taskkill。
+- `CommandExt::creation_flags` 必须每个文件单独 `use std::os::windows::process::CommandExt`。
+- `chrono` 时间戳转换需 `use chrono::TimeZone` trait；子串搜索用 `str::contains` 而非 slice。
+- ECharts 条件渲染下图表容器要用 callback ref（[] 依赖时普通 ref 为 null）。

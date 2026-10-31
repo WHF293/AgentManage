@@ -1,7 +1,8 @@
-//! memory —— M6 记忆管理：全局记忆（双账号 / ZCode）+ 项目记忆 .ai/ 桥接。
+//! memory —— M6 记忆管理：全局记忆（用户级，可统一为双端共写）+ 项目记忆 .ai/ 桥接。
 //!
-//! 全局：WB memory/<uid>_memory.md 与 user-<uid>-personal/MEMORY.md 可编辑（写前备份）；
-//!       ZCode AGENTS.md 默认只读，显式解锁后才写。
+//! 全局：WB user-<uid>-personal/MEMORY.md 与 ZCode AGENTS.md 可编辑（写前备份）；
+//!       「统一全局记忆」后真身 ~/.agenthub/MEMORY.md，双端路径为指向它的文件符号链接，
+//!       用户手动改 / 任一 Agent 保存全局记忆落的都是同一份（unify_global_memory，幂等）。
 //! 项目：.ai/ 统一记忆 + 指令文件幂等桥接块（init / sync 漂移检测 / consolidate 蒸馏），
 //!       方案 §4 定版；不碰各 App 内部记忆目录。
 
@@ -11,7 +12,8 @@ use chrono::TimeZone;
 use serde::Serialize;
 
 use crate::adapters::{agent_home, wb, zcode};
-use crate::fsutil::{self, Res};
+use crate::fsutil::{self, LinkMode, Res};
+use crate::migrate::eq_path;
 use crate::store::{self, Store};
 
 pub const BLOCK_START: &str = "<!-- agent-hub:start -->";
@@ -72,30 +74,35 @@ fn file_meta(p: &Path, id: &str, label: &str, agent: &str, ro: bool) -> Option<M
     })
 }
 
+/// path 是否已是指向 canonical 的文件符号链接
+fn points_to(path: &Path, canonical: &Path) -> bool {
+    fsutil::is_link(path)
+        && fsutil::link_target(path)
+            .map(|t| eq_path(&t.to_string_lossy(), &canonical.to_string_lossy()))
+            .unwrap_or(false)
+}
+
 pub fn global_files() -> Vec<MemoryFile> {
     let mut out = Vec::new();
-    // WB：按账号 memory/<uid>_memory.md
-    if let Ok(entries) = std::fs::read_dir(wb::memory_dir()) {
-        for e in entries.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.ends_with("_memory.md") && e.path().is_file() {
-                let uid = name.trim_end_matches("_memory.md").to_string();
-                if let Some(f) = file_meta(
-                    &e.path(),
-                    &format!("wb-{uid}"),
-                    &format!("WB · {} · memory.md", &uid[..uid.len().min(8)]),
-                    "workbuddy",
-                    false,
-                ) {
-                    out.push(f);
-                }
-            }
+    let canonical = store::central_memory_md();
+    // 统一真身 ~/.agenthub/MEMORY.md：存在即排最前（双端共写唯一入口）
+    if canonical.is_file() {
+        if let Some(f) = file_meta(
+            &canonical,
+            "hub-memory",
+            "全局记忆 · MEMORY.md（ZCode + WB 共用）",
+            "hub",
+            false,
+        ) {
+            out.push(f);
         }
     }
-    // WB：user-<uid>-personal/MEMORY.md
+    // 各端用户级记忆：已建链指向真身的不单列（就是真身本身），未统一的照旧列出便于发现残留。
+    // WB memory/<uid>_memory.md（Agent 自动生成的 User Memory Profile，带 RAW_JSON 块）
+    // 属 agent 自身系统文件，始终不列。
     for uid in wb::user_dirs() {
         let p = wb::dir().join(&uid).join("MEMORY.md");
-        if p.is_file() {
+        if p.is_file() && !points_to(&p, &canonical) {
             if let Some(f) = file_meta(
                 &p,
                 &format!("wb-user-{uid}"),
@@ -107,24 +114,34 @@ pub fn global_files() -> Vec<MemoryFile> {
             }
         }
     }
-    // ZCode：AGENTS.md（默认只读）
     let agents = zcode::agents_md();
-    if agents.is_file() {
+    if agents.is_file() && !points_to(&agents, &canonical) {
         if let Some(f) = file_meta(&agents, "zcode-agents", "ZCode · AGENTS.md", "zcode", true) {
             out.push(f);
         }
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
+    // 真身条目置顶（stable 排序，其余保持 id 序）
+    out.sort_by_key(|f| f.agent != "hub");
     out
 }
 
-/// 路径安全：只允许 ~/.workbuddy、~/.zcode 与已注册项目目录
+/// 路径安全：只允许 ~/.workbuddy、~/.zcode、~/.agenthub 与已注册项目目录
 fn allowed_root_of(path: &Path, store: &Store) -> Option<PathBuf> {
     let candidates = [
         wb::dir(),
         zcode::dir(),
+        store::hub_dir(),
     ];
-    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    // canonicalize 对尚不存在的新文件会失败：退化为其父目录 canonicalize + 文件名
+    let canon = |p: &Path| {
+        std::fs::canonicalize(p).unwrap_or_else(|_| {
+            p.parent()
+                .and_then(|par| std::fs::canonicalize(par).ok())
+                .map(|par| par.join(p.file_name().unwrap_or_default()))
+                .unwrap_or_else(|| p.to_path_buf())
+        })
+    };
     let target = canon(path);
     for root in &candidates {
         if target.starts_with(canon(root)) {
@@ -172,21 +189,27 @@ pub struct WriteMemoryInput {
 }
 
 pub fn write_global(store: &Store, input: &WriteMemoryInput) -> Res<()> {
-    let p = Path::new(&input.path);
-    let root = allowed_root_of(p, store).ok_or_else(|| format!("路径不在允许范围：{}", input.path))?;
-    let is_zcode_agents = p == zcode::agents_md();
+    let raw = Path::new(&input.path);
+    let root = allowed_root_of(raw, store).ok_or_else(|| format!("路径不在允许范围：{}", input.path))?;
+    let is_zcode_agents = raw == zcode::agents_md();
     if is_zcode_agents && !input.allow_zcode_agents {
         return Err("ZCode AGENTS.md 默认只读（避免与 ZCode 自身写入冲突），请先解锁".into());
     }
     let _ = root;
+    // 统一建链的路径解析到真身再写：atomic_write 的 tmp+rename 会把符号链接替换成实体文件
+    let p: PathBuf = if fsutil::is_link(raw) {
+        fsutil::link_target(raw).unwrap_or_else(|| raw.to_path_buf())
+    } else {
+        raw.to_path_buf()
+    };
     let backup_dir = store::backups_dir().join("memory");
     if p.exists() {
-        fsutil::backup_file(p, &backup_dir)?;
+        fsutil::backup_file(&p, &backup_dir)?;
     }
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fsutil::atomic_write(p, input.content.as_bytes())?;
+    fsutil::atomic_write(&p, input.content.as_bytes())?;
     store.with(|conn| {
         store::log_op(
             conn,
@@ -196,6 +219,122 @@ pub fn write_global(store: &Store, input: &WriteMemoryInput) -> Res<()> {
         );
         Ok(())
     })
+}
+
+/// 统一全局记忆：真身 ~/.agenthub/MEMORY.md，双端用户级路径替换为指向它的文件符号链接，
+/// 此后用户手动改 / ZCode 写 AGENTS.md / WB 写 user-personal MEMORY.md 落的都是同一份。
+/// 幂等：真身已存在则沿用不覆盖；已建链跳过；断链或指向别处的重建。返回步骤日志（⚠ 项修复后重跑即可）。
+pub fn unify_global_memory(store: &Store) -> Res<Vec<String>> {
+    let mut steps = Vec::new();
+    // 能力预检：单文件链接仅 symlink 可行（junction 仅目录、copy 会内容分叉），不行就整体不动
+    if fsutil::detect_link_mode(&store::hub_dir()) == LinkMode::Copy {
+        return Err("本机无法创建符号链接（需开发者模式或管理员权限），未做任何改动".into());
+    }
+    let canonical = store::central_memory_md();
+    // 种子：真身不存在时合并各来源（WB 用户级在前、ZCode AGENTS.md 在后）
+    if !canonical.is_file() {
+        let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let mut body = format!(
+            "# MEMORY.md — 全局记忆（ZCode / WorkBuddy 统一共用）\n\n\
+             > 由 AgentHub「统一全局记忆」生成于 {stamp}；原文件已备份至 ~/.agenthub/backups/memory/。\n\
+             > 本文件是双端唯一真身：~/.zcode/AGENTS.md 与 ~/.workbuddy/user-*-personal/MEMORY.md\n\
+             > 均为其符号链接，任一端保存全局记忆都写入这里。\n\n"
+        );
+        let mut sources = 0usize;
+        for uid in wb::user_dirs() {
+            let p = wb::dir().join(&uid).join("MEMORY.md");
+            if p.is_file() {
+                sources += 1;
+                body.push_str(&format!(
+                    "<!-- 来源: {} -->\n{}\n\n---\n\n",
+                    p.display(),
+                    std::fs::read_to_string(&p).unwrap_or_default()
+                ));
+            }
+        }
+        let agents = zcode::agents_md();
+        if agents.is_file() {
+            sources += 1;
+            body.push_str(&format!(
+                "<!-- 来源: {} -->\n{}\n",
+                agents.display(),
+                std::fs::read_to_string(&agents).unwrap_or_default()
+            ));
+        }
+        fsutil::atomic_write(&canonical, body.as_bytes())?;
+        steps.push(format!(
+            "✓ 生成统一真身 {}（合并 {sources} 份来源）",
+            canonical.display()
+        ));
+    } else {
+        steps.push(format!("✓ 真身已存在，沿用：{}", canonical.display()));
+    }
+    // 目标：ZCode AGENTS.md + 每个 WB 账号 user-personal/MEMORY.md（没有的也建链，获得统一记忆）
+    let mut targets: Vec<(PathBuf, String)> = vec![(zcode::agents_md(), "ZCode · AGENTS.md".into())];
+    for uid in wb::user_dirs() {
+        targets.push((
+            wb::dir().join(&uid).join("MEMORY.md"),
+            format!("WB · {} · MEMORY.md", &uid[5..13]),
+        ));
+    }
+    let backup_dir = store::backups_dir().join("memory");
+    let mut failed = 0usize;
+    for (p, name) in &targets {
+        if points_to(p, &canonical) {
+            steps.push(format!("✓ {name} 已指向真身，跳过"));
+            continue;
+        }
+        // 先备份现有内容，失败则不动原文件
+        let backup = if p.is_file() {
+            match fsutil::backup_file(p, &backup_dir) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    failed += 1;
+                    steps.push(format!("⚠ {name} 备份失败，跳过：{e}"));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        // 腾挪链接位
+        if p.exists() || fsutil::is_link(p) {
+            if let Err(e) = std::fs::remove_file(p) {
+                failed += 1;
+                steps.push(format!("⚠ {name} 移除旧文件失败，跳过：{e}"));
+                continue;
+            }
+        }
+        if let Some(par) = p.parent() {
+            let _ = std::fs::create_dir_all(par);
+        }
+        match fsutil::make_file_link(p, &canonical) {
+            Ok(()) => steps.push(format!("✓ {name} → {} 建链完成", canonical.display())),
+            Err(e) => {
+                failed += 1;
+                // 建链失败尽量还原原文件，不留破绽
+                if let Some(b) = &backup {
+                    let _ = std::fs::copy(b, p);
+                }
+                steps.push(format!("⚠ {name} 建链失败（已还原原文件）：{e}"));
+            }
+        }
+    }
+    if failed > 0 {
+        steps.push(format!("⚠ 统一完成但有 {failed} 项失败，修复后重跑即可（幂等）"));
+    } else {
+        steps.push("✓ 统一完成：ZCode / WorkBuddy 保存全局记忆均写入同一份".into());
+    }
+    store.with(|conn| {
+        store::log_op(
+            conn,
+            "memory.unify",
+            &canonical.to_string_lossy(),
+            serde_json::json!({ "targets": targets.len(), "failed": failed }),
+        );
+        Ok(())
+    })?;
+    Ok(steps)
 }
 
 // ─── 项目记忆 .ai/ 桥接 ───
@@ -442,7 +581,7 @@ pub fn init_project_bridge(store: &Store, path: &str) -> Res<Vec<String>> {
         std::fs::create_dir_all(&mem_dir).map_err(|e| e.to_string())?;
         steps.push("创建 .ai/memory/".into());
     }
-    let today = Local_date();
+    let today = local_date();
     let log = mem_dir.join(format!("{today}.md"));
     if !log.is_file() {
         fsutil::atomic_write(&log, format!("# {today}\n\n").as_bytes())?;
@@ -630,7 +769,7 @@ pub fn consolidate_project_bridge(store: &Store, path: &str) -> Res<Vec<String>>
     Ok(steps)
 }
 
-fn Local_date() -> String {
+fn local_date() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
@@ -651,6 +790,11 @@ pub fn memory_read(state: State<'_, Store>, path: String) -> Result<String, Stri
 #[tauri::command]
 pub fn memory_write(state: State<'_, Store>, input: WriteMemoryInput) -> Result<(), String> {
     write_global(&state, &input)
+}
+
+#[tauri::command]
+pub fn memory_global_unify(state: State<'_, Store>) -> Result<Vec<String>, String> {
+    unify_global_memory(&state)
 }
 
 #[tauri::command]

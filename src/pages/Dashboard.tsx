@@ -30,6 +30,7 @@ export function DashboardPage() {
       <div className="mb-3 grid grid-cols-2 gap-2.5">
         <AgentCard
           name="WorkBuddy"
+          agent="wb"
           sub="~/.workbuddy · skills 逐项链 / mcp.json / memory / 账号槽位"
           status={wbReady && (status?.workbuddy.skills_count ?? 0) > 0 ? 'ok' : wbReady ? 'warn' : 'off'}
           detail={
@@ -41,6 +42,7 @@ export function DashboardPage() {
         />
         <AgentCard
           name="ZCode"
+          agent="zcode"
           sub="~/.zcode · skills 整目录链 / cli config / v2 providers"
           status={zcReady && (status?.zcode.skills_count ?? 0) > 0 ? 'ok' : zcReady ? 'warn' : 'off'}
           detail={

@@ -11,6 +11,9 @@ import {
   type McpServerInput,
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
+import { ConfirmDialog } from '../common/components/ConfirmDialog';
+import { ArchHelp } from '../common/components/ArchHelp';
+import mcpArch from '../assets/arch/mcp.svg';
 
 const STATUS_TEXT: Record<string, string> = {
   ok: '✓',
@@ -308,7 +311,7 @@ function ServerModal({
         <div className="flex items-center" style={{ gap: 12, margin: '12px 0', fontSize: 12 }}>
           <span className={`sw${toWb ? ' on' : ''}`} onClick={() => setToWb(!toWb)} />
           分发到 WorkBuddy
-          <span className={`sw${toZc ? ' on' : ''}`} onClick={() => setToZc(!toZc)} />
+          <span className={`sw zc${toZc ? ' on' : ''}`} onClick={() => setToZc(!toZc)} />
           分发到 ZCode
         </div>
         {err && (
@@ -328,6 +331,7 @@ export function McpPage() {
   const [payload, setPayload] = useState<McpOverviewPayload | null>(null);
   const [editing, setEditing] = useState<McpOverviewItem | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<McpOverviewItem | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -365,8 +369,11 @@ export function McpPage() {
     }
   };
 
-  const remove = async (item: McpOverviewItem) => {
-    if (!confirm(`删除统一定义「${item.name}」并从双端移除？（目标文件有备份）`)) return;
+  const remove = (item: McpOverviewItem) => {
+    setDeleting(item);
+  };
+
+  const doRemove = async (item: McpOverviewItem) => {
     try {
       await mcpDelete(item.name);
       await refresh();
@@ -472,7 +479,7 @@ export function McpPage() {
               </div>
               <div className="card-actions">
                 <span
-                  className={`chip ${STATUS_COLOR[item.wb_status]}`}
+                  className={`chip ${item.wb_status === 'ok' ? 'ok' : STATUS_COLOR[item.wb_status]}`}
                   style={{ cursor: 'pointer' }}
                   title="点击切换 WB 启用态"
                   onClick={() => toggle(item, 'workbuddy')}
@@ -480,7 +487,7 @@ export function McpPage() {
                   WB {STATUS_TEXT[item.wb_status]}
                 </span>
                 <span
-                  className={`chip ${STATUS_COLOR[item.zcode_status]}`}
+                  className={`chip ${item.zcode_status === 'ok' ? 'zc' : STATUS_COLOR[item.zcode_status]}`}
                   style={{ cursor: item.zcode_unsupported ? 'default' : 'pointer' }}
                   title={item.zcode_unsupported ? undefined : '点击切换 ZCode 启用态'}
                   onClick={item.zcode_unsupported ? undefined : () => toggle(item, 'zcode')}
@@ -517,6 +524,26 @@ export function McpPage() {
           }}
         />
       )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="删除 MCP Server"
+          message={`删除统一定义「${deleting.name}」并从双端移除？（目标文件有备份）`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const d = deleting;
+            setDeleting(null);
+            if (d) void doRemove(d);
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+      <ArchHelp
+        title="MCP 岛架构"
+        desc="统一定义存 SQLite mcp_servers；双格式翻译写 WB mcp.json（disabled）与 ZCode config.json（enabled）；合并式写入仅覆盖托管容器，timeout/headers 等原样保留。"
+        img={mcpArch}
+      />
     </div>
   );
 }

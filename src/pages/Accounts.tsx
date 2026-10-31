@@ -9,8 +9,10 @@ import {
   type WbOverview,
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
-import { ConfirmDialog } from '../common/components/ConfirmDialog';
+import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
 import { toast } from '../stores/ui';
+import { ArchHelp } from '../common/components/ArchHelp';
+import accountArch from '../assets/arch/account.svg';
 
 const mask = (s: string) => (s.length > 8 ? `${s.slice(0, 6)}…` : s || '—');
 
@@ -28,6 +30,7 @@ export function AccountsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [naming, setNaming] = useState(false);
 
   const refresh = useCallback(async (): Promise<WbOverview | null> => {
     setError(null);
@@ -56,13 +59,15 @@ export function AccountsPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const saveCurrent = async () => {
-    const label = prompt('槽位名称（如：微信号 / 流量卡号）：');
-    if (!label?.trim()) return;
+  const saveCurrent = () => {
+    setNaming(true);
+  };
+
+  const doSaveCurrent = async (label: string) => {
     setBusy(true);
     try {
-      await wbSaveSlot(label.trim());
-      setMessage(`已保存当前登录为「${label.trim()}」`);
+      await wbSaveSlot(label);
+      setMessage(`已保存当前登录为「${label}」`);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -298,6 +303,25 @@ export function AccountsPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {naming && (
+        <InputDialog
+          title="保存槽位"
+          message="为当前 WB 登录态起个名字，便于在槽位列表中识别。"
+          fields={[{ key: 'label', label: '槽位名称', placeholder: '如：微信号 / 流量卡号' }]}
+          confirmLabel="保存"
+          onConfirm={(v) => {
+            const label = v.label?.trim();
+            setNaming(false);
+            if (label) void doSaveCurrent(label);
+          }}
+          onCancel={() => setNaming(false)}
+        />
+      )}
+      <ArchHelp
+        title="Account 岛架构"
+        desc="WB 登录态槽位化：auth 只做文件级复制永不读内容；切换走 检测→备份→原子替换→校验→启动，失败自动回滚最近备份。"
+        img={accountArch}
+      />
     </div>
   );
 }

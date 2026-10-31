@@ -57,9 +57,6 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="blob b1" />
-      <div className="blob b2" />
-
       <TitleBar />
       <ToastHost />
 

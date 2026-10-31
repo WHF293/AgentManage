@@ -31,6 +31,13 @@ pub fn rollout_dir() -> PathBuf {
 pub fn agents_md() -> PathBuf {
     dir().join("AGENTS.md")
 }
+pub fn plugins_dir() -> PathBuf {
+    dir().join("cli").join("plugins")
+}
+/// 插件注册清单（含 installPath/version/source）
+pub fn installed_plugins_json() -> PathBuf {
+    plugins_dir().join("installed_plugins.json")
+}
 
 pub fn installed() -> bool {
     dir().is_dir()

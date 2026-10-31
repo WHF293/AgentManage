@@ -197,7 +197,7 @@ export function TitleBar() {
       {confirmUpdate && updInfo && (
         <ConfirmDialog
           title="发现新版本"
-          message={`当前版本 v${updInfo.current} → 最新版本 v${updInfo.latest}\n\n点击「立即更新」将自动下载新版本并替换重启（下载完成后应用会短暂退出并自动拉起新版）。`}
+          message={`当前版本 v${updInfo.current} → 最新版本 v${updInfo.latest}\n\n点击「立即更新」将自动下载安装包并静默安装（下载完成后应用会退出，安装器静默装回原目录并自动重启新版，约需数秒）。`}
           confirmLabel="立即更新"
           onConfirm={() => void applyUpdate()}
           onCancel={() => setConfirmUpdate(false)}

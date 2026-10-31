@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   memoryGlobalList,
+  memoryGlobalUnify,
   memoryRead,
   memoryWrite,
   projectConsolidate,
@@ -12,13 +13,15 @@ import {
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
 import { LogoMark } from '../common/components/LogoMark';
+import { ArchHelp } from '../common/components/ArchHelp';
+import memoryArch from '../assets/arch/memory.svg';
 import { toast } from '../stores/ui';
 
 const fmtSize = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 
 type Tab = 'global' | 'project';
 
-/** G1 全局记忆：默认只读浏览，点【编辑】进入编辑态（底部 取消/保存） */
+/** G1 全局记忆：默认只读浏览，点【编辑】进入编辑态（底部 取消/保存）；「统一」后双端共写 ~/.agenthub/MEMORY.md */
 function GlobalMemory() {
   const [files, setFiles] = useState<MemoryFile[] | null>(null);
   const [selected, setSelected] = useState<MemoryFile | null>(null);
@@ -26,6 +29,8 @@ function GlobalMemory() {
   const [savedContent, setSavedContent] = useState('');
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unifyBusy, setUnifyBusy] = useState(false);
+  const [unifySteps, setUnifySteps] = useState<string[] | null>(null);
 
   const loadList = useCallback(async () => {
     try {
@@ -68,15 +73,52 @@ function GlobalMemory() {
     }
   };
 
+  const runUnify = async () => {
+    setUnifyBusy(true);
+    setError(null);
+    try {
+      const steps = await memoryGlobalUnify();
+      setUnifySteps(steps);
+      toast('全局记忆已统一：双端共写 ~/.agenthub/MEMORY.md');
+      await loadList();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUnifyBusy(false);
+    }
+  };
+
   const dirty = content !== savedContent;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, minHeight: 420 }}>
-      <div>
-        <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 6 }}>
-          MEMORY 文件（按账号 / Agent）
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '300px 1fr',
+        gap: 12,
+        minHeight: 'min(620px, calc(100vh - 230px))',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div className="flex items-center" style={{ gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span
+            title="用户级 MEMORY 文件（按账号 / Agent）"
+            style={{ fontSize: 10, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}
+          >
+            用户级 MEMORY 文件
+          </span>
+          <span style={{ flex: 1 }} />
+          <button
+            className="btn p"
+            style={{ fontSize: 11, padding: '3px 10px', whiteSpace: 'nowrap', flex: 'none' }}
+            disabled={unifyBusy}
+            title="真身 ~/.agenthub/MEMORY.md，双端原路径替换为符号链接（幂等可重跑）"
+            onClick={() => void runUnify()}
+          >
+            {unifyBusy ? '⟳ 统一中…' : '✦ 统一全局记忆'}
+          </button>
         </div>
-        <div className="list">
+        <div className="list" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {files === null && (
             <div className="li" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>加载中…</div>
           )}
@@ -99,13 +141,25 @@ function GlobalMemory() {
               onClick={() => void open(f)}
             >
               <div className="ic" style={{ width: 24, height: 24, fontSize: 12 }}>❑</div>
-              <div className="grow">
-                <div className="nm" style={{ fontSize: 11.5 }}>{f.label}</div>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <div
+                  className="nm"
+                  title={f.label}
+                  style={{ fontSize: 11.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                >
+                  {f.label}
+                </div>
                 <div className="ds">{fmtSize(f.size)} · {f.updated}</div>
               </div>
             </div>
           ))}
         </div>
+        {unifySteps && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: 'var(--color-text-3)', marginBottom: 4 }}>统一结果</div>
+            {stepList(unifySteps)}
+          </div>
+        )}
       </div>
       <div className="flex flex-col" style={{ gap: 10, minWidth: 0 }}>
         {selected ? (
@@ -171,14 +225,14 @@ function GlobalMemory() {
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--color-text-3)' }}>
-              编辑前自动快照至 backups/memory/ · 保存即写回原路径，路径校验失败则拒绝写入
-            </div>
+  <div style={{ fontSize: 10.5, color: 'var(--color-text-3)' }}>
+    编辑前自动快照至 backups/memory/ · 保存即写回（统一链接自动解析至真身 ~/.agenthub/MEMORY.md）
+  </div>
           </>
         ) : (
           <div
             className="card flex flex-col items-center justify-center"
-            style={{ minHeight: 300, gap: 10, color: 'var(--color-text-3)' }}
+            style={{ minHeight: 300, flex: 1, gap: 10, color: 'var(--color-text-3)' }}
           >
             <div style={{ color: 'var(--color-primary)', opacity: 0.5 }}>
               <LogoMark size={44} />
@@ -384,7 +438,7 @@ export function MemoryPage() {
   const [tab, setTab] = useState<Tab>('global');
   return (
     <div>
-      <PageHeader title="Memory" sub="全局记忆（双账号 / ZCode）+ 项目记忆 .ai/（跨 Agent 共享）" />
+      <PageHeader title="Memory" sub="全局记忆（用户级）+ 项目记忆 .ai/（跨 Agent 共享）" />
       <div className="mb-3 flex items-center" style={{ gap: 8 }}>
         {(
           [
@@ -403,6 +457,11 @@ export function MemoryPage() {
         ))}
       </div>
       {tab === 'global' ? <GlobalMemory /> : <ProjectMemory />}
+      <ArchHelp
+        title="Memory 岛架构"
+        desc="全局记忆统一真身 ~/.agenthub/MEMORY.md，双端以文件符号链接共写；项目记忆 .ai/ 桥接：init 注入标记块 / sync FNV 指纹漂移检测 / consolidate 蒸馏。"
+        img={memoryArch}
+      />
     </div>
   );
 }

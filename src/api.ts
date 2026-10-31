@@ -49,6 +49,8 @@ export interface SkillOverviewItem {
   wb: LinkStatus;
   zcode: LinkStatus;
   zcode_whole_link: boolean;
+  /** WB 端「允许模型自动调用」实测（null = WB 存储未收录） */
+  wb_auto: boolean | null;
 }
 
 export interface OpLogRow {
@@ -71,8 +73,22 @@ export const skillsOverview = () => invoke<SkillOverviewItem[]>('skills_overview
 export const relinkSkill = (name: string, agent: 'workbuddy' | 'zcode') =>
   invoke<string>('relink_skill', { name, agent });
 
+/** 启停：DB 状态 + 写穿 WB「允许模型自动调用」，返回同步结果消息 */
 export const setSkillEnabled = (name: string, enabled: boolean) =>
-  invoke<void>('set_skill_enabled', { name, enabled });
+  invoke<string>('set_skill_enabled', { name, enabled });
+
+export const skillDelete = (name: string) => invoke<void>('skill_delete', { name });
+
+export interface PluginSkillItem {
+  /** 运行时技能名（plugin:目录名，如 github:commit） */
+  name: string;
+  plugin: string;
+  plugin_version: string;
+  description: string | null;
+  plugin_enabled: boolean;
+}
+
+export const zcodePluginSkills = () => invoke<PluginSkillItem[]>('zcode_plugin_skills');
 
 export const recentOpLog = (limit = 20) => invoke<OpLogRow[]>('recent_op_log', { limit });
 
@@ -132,6 +148,8 @@ export interface ZcodeProviderLive {
   has_api_key: boolean;
   models: string[];
   builtin: boolean;
+  /** 已写穿到 WB models.json 的本 provider 模型（DB 托管清单 ∩ 文件现存 id） */
+  wb_models: string[];
 }
 
 export interface ProvidersOverview {
@@ -171,9 +189,9 @@ export const providerSave = (input: {
   base_url: string;
   api_key?: string;
   models?: string[];
-}) => invoke<void>('provider_save', { input });
+}) => invoke<string>('provider_save', { input });
 
-export const providerDelete = (id: string) => invoke<void>('provider_delete', { id });
+export const providerDelete = (id: string) => invoke<string>('provider_delete', { id });
 
 export const providerSetDefault = (family: string, key: string) =>
   invoke<void>('provider_set_default', { family, key });
@@ -343,6 +361,7 @@ export const memoryGlobalList = () => invoke<MemoryFile[]>('memory_global_list')
 export const memoryRead = (path: string) => invoke<string>('memory_read', { path });
 export const memoryWrite = (path: string, content: string, allowZcodeAgents: boolean) =>
   invoke<void>('memory_write', { input: { path, content, allow_zcode_agents: allowZcodeAgents } });
+export const memoryGlobalUnify = () => invoke<string[]>('memory_global_unify');
 export const projectsOverview = () => invoke<ProjectInfo[]>('projects_overview');
 export const projectInit = (path: string) => invoke<string[]>('project_init', { path });
 export const projectSync = (path: string) => invoke<string[]>('project_sync', { path });

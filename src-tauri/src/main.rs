@@ -144,5 +144,21 @@ fn main() {
         }
         return;
     }
+    // 无头模式：agenthub.exe --unify-memory  全局记忆统一：真身 ~/.agenthub/MEMORY.md + 双端建链
+    if args.iter().any(|a| a == "--unify-memory") {
+        let store = agenthub_lib::store::Store::open().expect("初始化 ~/.agenthub 失败");
+        match agenthub_lib::memory::unify_global_memory(&store) {
+            Ok(steps) => {
+                for s in steps {
+                    println!("{s}");
+                }
+            }
+            Err(e) => {
+                eprintln!("统一失败: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     agenthub_lib::run()
 }

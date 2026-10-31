@@ -6,20 +6,26 @@ import {
   relinkSkill,
   runSkillsMigration,
   setSkillEnabled,
+  skillDelete,
   skillsOverview,
+  zcodePluginSkills,
   type AppStatus,
   type LinkStatus,
   type MarketCatalog,
   type MarketSkill,
+  type PluginSkillItem,
   type MigrateReport,
   type SkillOverviewItem,
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
+import { ConfirmDialog } from '../common/components/ConfirmDialog';
+import { ArchHelp } from '../common/components/ArchHelp';
+import skillsArch from '../assets/arch/skills.svg';
 
 type SkillView = 'installed' | 'missing' | 'all';
 
 const STATUS_LABEL: Record<LinkStatus, string> = {
-  linked: '✓ 已链接',
+  linked: '✓ 已分发',
   diverged: '实目录（未接管）',
   broken: '断链 ✕',
   missing: '未分发',
@@ -37,15 +43,19 @@ function StatusChip({
   status,
   onClick,
   title,
+  agent,
 }: {
   label: string;
   status: LinkStatus;
   onClick?: () => void;
   title?: string;
+  /** 身份色强化：zcode 的正常态用身份蓝（异常态保留 warn/err 状态色优先） */
+  agent?: 'wb' | 'zcode';
 }) {
+  const cls = agent === 'zcode' && status === 'linked' ? 'zc' : STATUS_CHIP[status];
   return (
     <span
-      className={`chip ${STATUS_CHIP[status]}`}
+      className={`chip ${cls}`}
       style={onClick ? { cursor: 'pointer' } : undefined}
       title={title}
       onClick={onClick}
@@ -193,6 +203,8 @@ export function SkillsPage() {
   const [market, setMarket] = useState<MarketCatalog | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<SkillOverviewItem | null>(null);
+  const [pluginSkills, setPluginSkills] = useState<PluginSkillItem[]>([]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -200,6 +212,8 @@ export function SkillsPage() {
       const [list, st] = await Promise.all([skillsOverview(), getAppStatus()]);
       setItems(list);
       setStatus(st);
+      // 插件技能只读全貌（旧后端无此命令时静默降级）
+      void zcodePluginSkills().then(setPluginSkills).catch(() => setPluginSkills([]));
       return list;
     } catch (e) {
       setError(String(e));
@@ -249,6 +263,16 @@ export function SkillsPage() {
     }
   };
 
+  const doDelete = async (name: string) => {
+    setError(null);
+    try {
+      await skillDelete(name);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const distributeAll = async () => {
     if (!items) return;
     setMigrating(true);
@@ -277,7 +301,8 @@ export function SkillsPage() {
 
   const toggleEnabled = async (name: string, enabled: boolean) => {
     try {
-      await setSkillEnabled(name, enabled);
+      const msg = await setSkillEnabled(name, enabled);
+      setMessage(msg);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -453,11 +478,15 @@ export function SkillsPage() {
         ) : (
         <div className="item-grid">
           {filtered.map((item) => (
-            <div className="item-card" key={item.name}>
+            <div className="item-card sm" key={item.name}>
               <div className="card-top">
                 <span
                   className={`sw${item.enabled ? ' on' : ''}`}
-                  title={item.enabled ? '已启用（点击禁用）' : '已禁用（点击启用）'}
+                  title={
+                    item.enabled
+                      ? '已启用（点击禁用；同步 WB 自动调用 = 开）'
+                      : '已禁用（点击启用；同步 WB 自动调用 = 关）'
+                  }
                   onClick={() => toggleEnabled(item.name, !item.enabled)}
                 />
                 <div className="grow" style={{ minWidth: 0 }}>
@@ -483,30 +512,98 @@ export function SkillsPage() {
                 <StatusChip
                   label={`WB ${STATUS_LABEL[item.wb]}`}
                   status={item.wb}
-                  title={item.wb === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
+                  title={
+                    item.wb === 'linked'
+                      ? '软链已建：WB 内可见、可手动调用；自动调用开关见「WB 自动」'
+                      : '点击重建链接（指向中央仓库）'
+                  }
                   onClick={
                     item.wb === 'linked' ? undefined : () => fixOne(item.name, 'workbuddy')
                   }
                 />
+                <span
+                  className={`chip ${item.wb_auto === null ? 'off' : item.wb_auto ? 'ok' : 'warn'}`}
+                  title={
+                    item.wb_auto === null
+                      ? 'WB 尚未收录该技能（在 WB 打开一次技能面板后即可同步开关）'
+                      : item.wb_auto
+                        ? 'WB 允许模型自动调用'
+                        : 'WB 已禁止模型自动调用（WB 内仍可手动使用）'
+                  }
+                >
+                  WB 自动 {item.wb_auto === null ? '?' : item.wb_auto ? '✓' : '关'}
+                </span>
                 {item.zcode_whole_link ? (
-                  <span className="chip ok" title="ZCode 处于整目录链模式，随中央仓库生效">
+                  <span className="chip zc" title="ZCode 处于整目录链模式，随中央仓库生效">
                     ZCode ✓ 整链
                   </span>
                 ) : (
                   <StatusChip
                     label={`ZCode ${STATUS_LABEL[item.zcode]}`}
                     status={item.zcode}
+                    agent="zcode"
                     title={item.zcode === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
                     onClick={
                       item.zcode === 'linked' ? undefined : () => fixOne(item.name, 'zcode')
                     }
                   />
                 )}
+                <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => setDeleting(item)}>
+                  删除
+                </span>
               </div>
             </div>
           ))}
         </div>
         ))}
+
+      {/* ZCode 插件技能（只读全貌：插件体系不经中央仓库分发） */}
+      {view !== 'missing' && pluginSkills.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="flex items-center" style={{ gap: 8, marginBottom: 8 }}>
+            <b style={{ fontSize: 13 }}>ZCode 插件技能（只读）</b>
+            <span
+              className="chip off"
+              title="插件技能由 ZCode 插件运行时加载与启停，不经 AgentHub 中央仓库分发"
+            >
+              不参与分发
+            </span>
+            <span style={{ flex: 1 }} />
+          </div>
+          <div className="list">
+            {pluginSkills
+              .filter(
+                (p) => !keyword || p.name.toLowerCase().includes(keyword.toLowerCase()),
+              )
+              .map((p) => (
+                <div className="li" key={p.name}>
+                  <div className="ic" style={{ fontSize: 12 }}>⌗</div>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="nm" style={{ fontSize: 12 }}>
+                      {p.name}
+                      <span className="chip off" style={{ marginLeft: 6 }}>
+                        {p.plugin} v{p.plugin_version}
+                      </span>
+                      <span
+                        className={`chip ${p.plugin_enabled ? 'ok' : 'warn'}`}
+                        style={{ marginLeft: 6 }}
+                      >
+                        {p.plugin_enabled ? '插件已启用' : '插件已停用'}
+                      </span>
+                    </div>
+                    <div className="ds" title={p.description ?? undefined}>
+                      {p.description ?? '—'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--color-text-3)', marginTop: 6 }}>
+            · 来自 ~/.zcode/cli/plugins/（installed_plugins.json + 各插件 manifest）；增删与启停请在
+            ZCode 插件管理中进行，AgentHub 仅展示全貌
+          </div>
+        </div>
+      )}
 
       {/* Skill 市场（未安装 / 全部 视图） */}
       {view !== 'installed' && (
@@ -551,6 +648,26 @@ export function SkillsPage() {
       )}
 
       {report && <MigrationReportModal report={report} onClose={() => setReport(null)} />}
+
+      {deleting && (
+        <ConfirmDialog
+          title="删除 Skill"
+          message={`删除「${deleting.name}」？\n双端引用将一并移除，中央仓库源文件删除前自动备份。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const name = deleting.name;
+            setDeleting(null);
+            void doDelete(name);
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+      <ArchHelp
+        title="Skills 岛架构"
+        desc="中央仓库 ~/.agenthub/skills 单一事实源；WB 逐项链、ZCode 整目录链；软链三级降级 symlink→junction→copy，替换实目录前自动备份。"
+        img={skillsArch}
+      />
     </div>
   );
 }

@@ -10,6 +10,9 @@ import {
   type ZcodeProviderLive,
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
+import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
+import { ArchHelp } from '../common/components/ArchHelp';
+import modelsArch from '../assets/arch/models.svg';
 
 const field: React.CSSProperties = {
   border: '1px solid var(--color-border)',
@@ -23,7 +26,32 @@ const field: React.CSSProperties = {
 };
 const label: React.CSSProperties = { fontSize: 11, color: 'var(--color-text-3)', marginBottom: 4 };
 
-/** E2 · Provider 编辑 + 在线拉取模型列表（勾选制，杜绝手写模型名） */
+/** 卡片右上角操作键 icon（lucide 风格，stroke currentColor 随主题） */
+const IconPencil = () => (
+  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+  </svg>
+);
+const IconTrash = () => (
+  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+  </svg>
+);
+
+/** 供应商预设（仅预填表单，参考 whf-stock-board ModelManageModal 的预设 chips） */
+const PRESETS: { key: string; label: string; kind: string; base: string }[] = [
+  { key: 'custom', label: '自定义', kind: '', base: '' },
+  { key: 'mimo', label: '小米 MiMo', kind: 'openai-compatible', base: 'https://api.xiaomimimo.com/v1' },
+  { key: 'deepseek', label: 'DeepSeek', kind: 'openai-compatible', base: 'https://api.deepseek.com/v1' },
+  { key: 'moonshot', label: 'Moonshot', kind: 'openai-compatible', base: 'https://api.moonshot.cn/v1' },
+  { key: 'bigmodel', label: 'BigModel', kind: 'anthropic', base: 'https://open.bigmodel.cn/api/anthropic' },
+  { key: 'zai', label: 'Z.ai', kind: 'anthropic', base: 'https://api.z.ai/api/anthropic' },
+];
+
+/**
+ * E2 · Provider 编辑（参考 whf-stock-board ModelManageModal 表单态骨架：
+ * 供应商预设 chips → 名称/类型 → 接口地址 → API Key（眼睛 + 获取模型列表）→ 高级配置折叠 → 模型勾选）
+ */
 function ProviderModal({
   initial,
   onClose,
@@ -31,18 +59,30 @@ function ProviderModal({
 }: {
   initial: ZcodeProviderLive | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (message: string) => void;
 }) {
   const [id] = useState(initial?.id ?? crypto.randomUUID());
   const [name, setName] = useState(initial?.name ?? '');
   const [kind, setKind] = useState(initial?.kind ?? 'openai-compatible');
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? '');
   const [apiKey, setApiKey] = useState('');
+  const [modelsUrl, setModelsUrl] = useState('');
   const [fetched, setFetched] = useState<FetchResult | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set(initial?.models ?? []));
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showKey, setShowKey] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [presetKey, setPresetKey] = useState('custom');
+
+  const applyPreset = (key: string) => {
+    setPresetKey(key);
+    const preset = PRESETS.find((p) => p.key === key);
+    if (preset?.kind) setKind(preset.kind);
+    if (preset?.base) setBaseUrl(preset.base);
+    if (!name.trim() && preset && preset.key !== 'custom') setName(preset.label);
+  };
 
   const doFetch = async () => {
     setErr(null);
@@ -53,6 +93,7 @@ function ProviderModal({
         kind,
         base_url: baseUrl,
         api_key: apiKey || undefined,
+        models_url: modelsUrl.trim() || undefined,
       });
       setFetched(r);
       setPicked(new Set(initial?.models ?? []));
@@ -66,12 +107,12 @@ function ProviderModal({
   const submit = async () => {
     setErr(null);
     if (!name.trim() || !baseUrl.trim()) {
-      setErr('名称与 baseURL 必填');
+      setErr('名称与接口地址必填');
       return;
     }
     setSaving(true);
     try {
-      await providerSave({
+      const msg = await providerSave({
         id,
         name: name.trim(),
         kind,
@@ -79,7 +120,7 @@ function ProviderModal({
         api_key: apiKey || undefined,
         models: [...picked],
       });
-      onSaved();
+      onSaved(msg);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -111,13 +152,31 @@ function ProviderModal({
     >
       <div
         className="card"
-        style={{ width: 600, maxHeight: '84vh', overflow: 'auto', cursor: 'default' }}
+        style={{ width: 640, maxHeight: '86vh', overflow: 'auto', cursor: 'default' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <b style={{ fontSize: 14 }}>{initial ? `编辑 Provider · ${initial.name}` : '新增 Provider'}</b>
           <span style={{ color: 'var(--color-text-3)', cursor: 'pointer' }} onClick={onClose}>✕</span>
         </div>
+
+        {/* 供应商预设 chips（仅预填，不影响已填内容） */}
+        <div style={{ marginTop: 12 }}>
+          <div style={label}>供应商</div>
+          <div className="flex" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {PRESETS.map((preset) => (
+              <span
+                key={preset.key}
+                className={`chip ${presetKey === preset.key ? 'ok' : 'off'}`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => applyPreset(preset.key)}
+              >
+                {preset.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-2.5" style={{ marginTop: 10 }}>
           <div>
             <div style={label}>名称</div>
@@ -131,7 +190,7 @@ function ProviderModal({
             </select>
           </div>
           <div style={{ gridColumn: '1/3' }}>
-            <div style={label}>baseURL</div>
+            <div style={label}>接口地址（baseURL）</div>
             <input style={{ ...field, fontFamily: 'Consolas, monospace' }} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://…/v1 或 https://…/api/anthropic" />
           </div>
           <div style={{ gridColumn: '1/3' }}>
@@ -143,11 +202,73 @@ function ProviderModal({
                 </span>
               )}
             </div>
-            <input type="password" style={field} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={initial?.has_api_key ? '留空保持不变' : 'sk-…'} />
+            <div className="flex" style={{ gap: 8 }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  style={{ ...field, paddingRight: 30 }}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={initial?.has_api_key ? '留空保持不变' : 'sk-…'}
+                />
+                <span
+                  title={showKey ? '隐藏密钥' : '显示密钥'}
+                  style={{
+                    position: 'absolute',
+                    right: 9,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-3)',
+                    fontSize: 12,
+                  }}
+                  onClick={() => setShowKey(!showKey)}
+                >
+                  {showKey ? '🙈' : '👁'}
+                </span>
+              </div>
+              <button className="btn gh" style={{ whiteSpace: 'nowrap' }} onClick={doFetch} disabled={fetching || !baseUrl.trim()}>
+                {fetching ? '拉取中…' : '⌕ 获取模型列表'}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center" style={{ gap: 8, margin: '12px 0' }}>
+        {/* 高级配置折叠（stock-board 风格：chevron + 边框卡片） */}
+        <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, marginTop: 12 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 12px',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--color-text-2)',
+              userSelect: 'none',
+            }}
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+          >
+            <span style={{ color: 'var(--color-text-3)', fontSize: 10 }}>{advancedOpen ? '▼' : '▶'}</span>
+            高级配置
+          </div>
+          {advancedOpen && (
+            <div style={{ borderTop: '1px solid var(--color-border)', padding: '10px 12px' }}>
+              <div style={label}>
+                模型列表接口（models_url，可选）
+                <span style={{ marginLeft: 6 }}>网关的 /v1/models 地址异常时覆写，留空走候选链自动探测</span>
+              </div>
+              <input
+                style={{ ...field, fontFamily: 'Consolas, monospace' }}
+                value={modelsUrl}
+                onChange={(e) => setModelsUrl(e.target.value)}
+                placeholder="https://…/v1/models"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center" style={{ gap: 8, margin: '12px 0 8px' }}>
           <b style={{ fontSize: 12 }}>模型列表</b>
           {fetched && !fetched.suggested && (
             <span className="chip ok">已拉取 {fetched.models.length} 个</span>
@@ -157,15 +278,13 @@ function ProviderModal({
               内置推荐（网关无 /v1/models，可编辑）
             </span>
           )}
+          {picked.size > 0 && <span className="chip off">已勾选 {picked.size}</span>}
           <span style={{ flex: 1 }} />
-          <button className="btn p" style={{ fontSize: 11 }} onClick={doFetch} disabled={fetching || !baseUrl.trim()}>
-            {fetching ? '拉取中…' : '⌕ 获取模型列表'}
-          </button>
         </div>
 
-        {fetched && (
-          <div className="list" style={{ marginBottom: 10, maxHeight: 220, overflow: 'auto' }}>
-            {fetched.models.map((m) => (
+        {(fetched || initial?.models?.length) && (
+          <div className="list" style={{ marginBottom: 10, maxHeight: 220, overflow: 'auto', border: '1px solid var(--color-border)', borderRadius: 10 }}>
+            {(fetched?.models ?? initial?.models ?? []).map((m) => (
               <div className="li" key={m} style={{ padding: '6px 12px' }}>
                 <span className={`sw${picked.has(m) ? ' on' : ' small'}`} onClick={() => toggle(m)} />
                 <div className="grow">
@@ -195,7 +314,17 @@ function ProviderModal({
         )}
         {!initial?.models?.length && !fetched && (
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
-            模型名一律从列表勾选，不手写 —— 填好 baseURL 与 Key 后点「获取模型列表」。
+            模型名一律从列表勾选，不手写 —— 填好接口地址与 Key 后点「获取模型列表」。
+          </div>
+        )}
+        {!fetched && !!initial?.models?.length && (
+          <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 10 }}>
+            以上为已保存的勾选；点「获取模型列表」拉取网关最新可用列表后重新勾选。
+          </div>
+        )}
+        {kind === 'anthropic' && (
+          <div style={{ fontSize: 11, color: 'var(--color-warn, #d9a441)', marginBottom: 10 }}>
+            anthropic 型仅写 ZCode（WB 自定义模型只支持 OpenAI 兼容 chat/completions，不写穿 WB）。
           </div>
         )}
 
@@ -205,7 +334,7 @@ function ProviderModal({
         <div className="flex" style={{ gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn gh" onClick={onClose}>取消</button>
           <button className="btn p" onClick={submit} disabled={saving}>
-            {saving ? '保存中…' : '保存并写入 ZCode'}
+            {saving ? '保存中…' : '保存并写入双端'}
           </button>
         </div>
       </div>
@@ -213,11 +342,13 @@ function ProviderModal({
   );
 }
 
-/** M4 模型岛 —— E1 Provider 列表（ZCode 直写已完成，WB 探测占位） */
+/** M4 模型岛 —— E1 Provider 列表（ZCode 直写 + WB models.json 写穿） */
 export function ModelsPage() {
   const [data, setData] = useState<ProvidersOverview | null>(null);
   const [editing, setEditing] = useState<ZcodeProviderLive | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<ZcodeProviderLive | null>(null);
+  const [defaultTarget, setDefaultTarget] = useState<ZcodeProviderLive | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -234,22 +365,24 @@ export function ModelsPage() {
     void refresh();
   }, [refresh]);
 
-  const remove = async (p: ZcodeProviderLive) => {
-    if (!confirm(`从 ZCode 删除 provider「${p.name}」？（config.json 有备份）`)) return;
+  const remove = (p: ZcodeProviderLive) => {
+    setDeleting(p);
+  };
+
+  const doRemove = async (p: ZcodeProviderLive) => {
     try {
-      await providerDelete(p.id);
+      setMessage(await providerDelete(p.id));
       await refresh();
     } catch (e) {
       setError(String(e));
     }
   };
 
-  const setDefault = async (p: ZcodeProviderLive) => {
-    // selected key 形如 "coding-plan:builtin:bigmodel-coding-plan"；family 取 builtin: 前的家族名或手输
-    const family = prompt('家族名 family（如 bigmodel / zai）：', 'bigmodel');
-    if (!family) return;
-    const key = prompt('SelectedKey（如 coding-plan:builtin:bigmodel-coding-plan）：', `coding-plan:${p.id}`);
-    if (!key) return;
+  const setDefault = (p: ZcodeProviderLive) => {
+    setDefaultTarget(p);
+  };
+
+  const doSetDefault = async (family: string, key: string) => {
     try {
       await providerSetDefault(family, key);
       setMessage(`已设为 ${family} 家族默认（需重启 ZCode 生效）`);
@@ -259,13 +392,15 @@ export function ModelsPage() {
     }
   };
 
-  const providers = data?.providers ?? [];
+  const all = data?.providers ?? [];
+  const providers = all.filter((p) => !p.builtin); // 内置档位（ZCode 官方注册表 builtin:*）不上屏，只显示手动添加的
+  const hiddenCount = all.length - providers.length;
 
   return (
     <div>
       <PageHeader
         title={`模型 Provider（${providers.length || '…'}）`}
-        sub="一次配置 → 直写 ZCode v2/config.json · API Key 只存目标文件不入库 · WB 侧接入点探测为 M4 后续项"
+        sub="一次配置 → 直写 ZCode v2/config.json + WB models.json · API Key 只存目标文件不入库"
       />
 
       <div className="mb-3 flex items-center" style={{ gap: 8 }}>
@@ -314,31 +449,65 @@ export function ModelsPage() {
                   >
                     {p.base_url || '—'}
                   </div>
+                  {/* 已开启的模型一览：单行截断，悬停看全量 */}
+                  <div
+                    title={p.models.length ? p.models.join(' · ') : '未勾选模型'}
+                    style={{
+                      fontSize: 10.5,
+                      fontFamily: 'Consolas, monospace',
+                      color: 'var(--color-text-3)',
+                      marginTop: 4,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {p.models.length ? p.models.join(' · ') : '（未勾选模型）'}
+                  </div>
+                </div>
+                {/* 右上角 icon 操作键：编辑 / 删除（builtin 无删除） */}
+                <div style={{ display: 'flex', gap: 2, flex: 'none', alignSelf: 'flex-start' }}>
+                  <button className="icon-btn" title="编辑" onClick={() => setEditing(p)}>
+                    <IconPencil />
+                  </button>
+                  {!p.builtin && (
+                    <button className="icon-btn danger" title="删除" onClick={() => remove(p)}>
+                      <IconTrash />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="card-actions">
                 <span className={`chip ${p.kind === 'anthropic' ? 'ok' : 'off'}`}>{p.kind}</span>
-                <span className="chip off">{p.models.length} 个模型</span>
-                <span className="chip off">Key{p.has_api_key ? '已配置' : '未配置'}</span>
-                <span className="chip off" style={{ cursor: 'pointer' }} onClick={() => setEditing(p)}>编辑</span>
-                <span className="chip warn" style={{ cursor: 'pointer' }} onClick={() => setDefault(p)}>设默认</span>
-                {!p.builtin && (
-                  <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => remove(p)}>删除</span>
+                {p.kind === 'openai-compatible' ? (
+                  <span
+                    className={`chip ${p.models.length > 0 && p.wb_models.length === p.models.length ? 'ok' : 'warn'}`}
+                    title={`WB models.json 已同步 ${p.wb_models.length}/${p.models.length}（热加载，WB 模型选择器「自定义」分区可见）`}
+                  >
+                    WB {p.wb_models.length}/{p.models.length}
+                  </span>
+                ) : (
+                  <span className="chip off" title="WB 自定义模型仅支持 OpenAI 兼容接入点，anthropic 型不写穿">WB·—</span>
                 )}
+                <span className="chip off">Key{p.has_api_key ? '已配置' : '未配置'}</span>
+                <span className="chip warn" style={{ cursor: 'pointer' }} onClick={() => setDefault(p)}>设默认</span>
               </div>
             </div>
           );
         })}
         {providers.length === 0 && (
           <div className="item-card" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
-            未读取到 provider（~/.zcode/v2/config.json 为空或不存在）
+            {hiddenCount > 0
+              ? '没有手动添加的 Provider（ZCode 内置档位已隐藏）—— 点右上角「新增 Provider」添加'
+              : '未读取到 provider（~/.zcode/v2/config.json 为空或不存在）'}
           </div>
         )}
       </div>
 
       <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 10 }}>
         · 拉取策略：/v1/models 候选链（/v&#123;N&#125; 版本段先拼原样 → /v1/models → 兼容后缀剥离；anthropic 原生 x-api-key 优先）
-        · 修改「默认」后需重启 ZCode 生效 · WB 侧第三方模型接入点运行时探测（未果时引导打开 WB 设置页）
+        · 修改「默认」后需重启 ZCode 生效 · WB 侧：openai-compatible 保存时写穿 models.json（1s 热加载即生效），anthropic 型仅 ZCode
+        {hiddenCount > 0 && ` · 已隐藏 ${hiddenCount} 个 ZCode 内置档位（builtin:*），此处仅显示手动添加的 Provider`}
       </div>
 
       {(creating || editing) && (
@@ -348,13 +517,53 @@ export function ModelsPage() {
             setCreating(false);
             setEditing(null);
           }}
-          onSaved={() => {
+          onSaved={(msg) => {
             setCreating(false);
             setEditing(null);
+            setMessage(msg);
             void refresh();
           }}
         />
       )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="删除 Provider"
+          message={`删除 provider「${deleting.name}」？（ZCode config.json 与 WB models.json 均先备份）`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const p = deleting;
+            setDeleting(null);
+            if (p) void doRemove(p);
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
+
+      {defaultTarget && (
+        <InputDialog
+          title="设置默认模型"
+          message={`为「${defaultTarget.name}」设置 ZCode 默认模型（selected key 形如 coding-plan:builtin:bigmodel-coding-plan）。`}
+          fields={[
+            { key: 'family', label: '家族名 family（如 bigmodel / zai）', defaultValue: 'bigmodel' },
+            { key: 'key', label: 'SelectedKey', defaultValue: `coding-plan:${defaultTarget.id}`, mono: true },
+          ]}
+          confirmLabel="设为默认"
+          onConfirm={(v) => {
+            const family = v.family?.trim();
+            const key = v.key?.trim();
+            setDefaultTarget(null);
+            if (family && key) void doSetDefault(family, key);
+          }}
+          onCancel={() => setDefaultTarget(null)}
+        />
+      )}
+      <ArchHelp
+        title="Model 岛架构"
+        desc="ZCode v2/config.json 直写 + WB models.json 写穿（1s debounce 热加载）；/v1/models 四级候选链逐级降级；API Key 只存目标文件，永不入库。"
+        img={modelsArch}
+      />
     </div>
   );
 }

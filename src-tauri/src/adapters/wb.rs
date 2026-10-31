@@ -19,6 +19,11 @@ pub fn skills_dir() -> PathBuf {
 pub fn mcp_json() -> PathBuf {
     dir().join("mcp.json")
 }
+/// 第三方自定义模型（openai-compatible 写穿，WB 侧 1s debounce 热加载）：
+/// 裸数组或 {models:[...], availableModels:[...]}，条目必须带 id
+pub fn models_json() -> PathBuf {
+    dir().join("models.json")
+}
 pub fn memory_dir() -> PathBuf {
     dir().join("memory")
 }
@@ -50,6 +55,31 @@ pub fn user_dirs() -> Vec<String> {
         }
     }
     out.sort();
+    out
+}
+
+/// WB 技能开关存储（storage/user-*-personal/scoped/*/skills-installed-store.json，
+/// 面板「允许模型自动调用」开关落在这些文件的 disableModelInvocation 字段）
+pub fn skill_toggle_stores() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(accounts) = std::fs::read_dir(dir().join("storage")) else {
+        return out;
+    };
+    for acct in accounts.flatten() {
+        let name = acct.file_name().to_string_lossy().to_string();
+        if !(name.starts_with("user-") && name.ends_with("-personal")) {
+            continue;
+        }
+        let Ok(scopes) = std::fs::read_dir(acct.path().join("scoped")) else {
+            continue;
+        };
+        for scope in scopes.flatten() {
+            let p = scope.path().join("skills-installed-store.json");
+            if p.is_file() {
+                out.push(p);
+            }
+        }
+    }
     out
 }
 

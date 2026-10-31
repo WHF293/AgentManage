@@ -1,16 +1,17 @@
-//! update —— 在线更新：检测 GitHub Release 最新版（私有仓库走 gh CLI，公开回退 API），
-//! 下载新 exe 到 ~/.agenthub/updates/，经 bat「等退出 → 替换 → 重启」完成自更新。
-//! AgentHub 是单文件 exe（--no-bundle），无 NSIS 安装器，替换自身必须借道 bat。
+//! update —— 在线更新（NSIS 安装版，链路对齐 whf-stock-board 实证实现；仓库已公开，全匿名通道）：
+//! 检测 GitHub Release 最新版：302 重定向主通道（免匿名 API 限流）→ 公开 API 兜底；
+//! 下载安装包到 ~/.agenthub/updates/（reqwest 直连流式，真实进度经 update-download-progress 推送）；
+//! 安装 = NSIS 静默参数 /S /D=<原目录> + start 重启（cmd 链 raw_arg 原样传整条命令）。
 
 use std::io::{Read, Write};
 use std::os::windows::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::fsutil::{self, Res};
+use crate::fsutil::Res;
 use crate::store;
 
 const REPO: &str = "WHF293/AgentManage";
@@ -43,25 +44,38 @@ fn http_client() -> Res<reqwest::blocking::Client> {
         .map_err(|e| format!("HTTP 客户端构建失败: {e}"))
 }
 
-/// 资产名匹配：AgentHub_v*_x64.exe
+/// 资产名匹配：AgentHub_v*_x64-setup.exe（NSIS 安装包）
 fn pick_asset_name(name: &str) -> bool {
-    name.starts_with("AgentHub_v") && name.ends_with("_x64.exe")
+    name.starts_with("AgentHub_v") && name.ends_with("_x64-setup.exe")
 }
 
-/// 通道 1：gh CLI（私有仓库可用；未安装/未登录则失败跳过）
-fn fetch_via_gh() -> Res<ReleaseAsset> {
-    let out = Command::new("gh")
-        .args(["api", &format!("repos/{REPO}/releases/latest")])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("gh 不可用: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "gh 查询失败: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+/// 通道 1：releases/latest 网页 302 重定向解析版本号（公开仓库可用，免匿名 API 限流）
+fn fetch_via_redirect(http: &reqwest::blocking::Client) -> Res<ReleaseAsset> {
+    let resp = http
+        .get(&format!("https://github.com/{REPO}/releases/latest"))
+        .send()
+        .map_err(|e| format!("Releases 页面请求失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Releases 页面返回异常: {e}（私有仓库匿名不可见）"))?;
+    let final_url = resp.url().to_string();
+    let marker = "/tag/";
+    let pos = final_url
+        .find(marker)
+        .ok_or_else(|| format!("重定向 URL 未含 tag: {final_url}"))?;
+    let tag = final_url[pos + marker.len()..]
+        .trim_end_matches('/')
+        .to_string();
+    let latest = tag.trim_start_matches('v').to_string();
+    if latest.is_empty() || !latest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        return Err(format!("重定向 tag 异常: {tag}"));
     }
-    parse_release_json(&String::from_utf8_lossy(&out.stdout))
+    // 产物名与 release.yml rename 规则一致：AgentHub_v{version}_x64-setup.exe
+    let asset_name = format!("AgentHub_v{latest}_x64-setup.exe");
+    Ok(ReleaseAsset {
+        tag,
+        url: format!("https://github.com/{REPO}/releases/download/v{latest}/{asset_name}"),
+        name: asset_name,
+    })
 }
 
 /// 通道 2：公开 Releases API
@@ -72,7 +86,7 @@ fn fetch_via_api(http: &reqwest::blocking::Client) -> Res<ReleaseAsset> {
         .send()
         .map_err(|e| format!("GitHub API 请求失败: {e}"))?
         .error_for_status()
-        .map_err(|e| format!("GitHub API 返回异常: {e}（私有仓库需本机 gh 登录）"))?
+        .map_err(|e| format!("GitHub API 返回异常: {e}"))?
         .text()
         .map_err(|e| format!("GitHub API 读取失败: {e}"))?;
     parse_release_json(&body)
@@ -103,7 +117,7 @@ fn parse_release_json(body: &str) -> Res<ReleaseAsset> {
             }
         }
     }
-    Err("最新 Release 未包含 AgentHub_v*_x64.exe 资产".into())
+    Err("最新 Release 未包含 AgentHub_v*_x64-setup.exe 资产".into())
 }
 
 /// 版本比较：a < b → true（逐段数值比较，忽略 v 前缀）
@@ -126,14 +140,12 @@ fn version_lt(a: &str, b: &str) -> bool {
 }
 
 fn check_blocking(current: &str) -> Res<UpdateCheckInfo> {
-    let asset = match fetch_via_gh() {
+    let http = http_client()?;
+    // 302 主通道（免匿名 API 限流）→ 公开 API 兜底
+    let asset = match fetch_via_redirect(&http) {
         Ok(a) => a,
-        Err(gh_err) => {
-            let http = http_client()?;
-            fetch_via_api(&http).map_err(|api_err| {
-                format!("检测失败（gh: {gh_err}；api: {api_err}）")
-            })?
-        }
+        Err(r_err) => fetch_via_api(&http)
+            .map_err(|api_err| format!("检测失败（302: {r_err}；api: {api_err}）"))?,
     };
     let latest = asset.tag.trim_start_matches('v').to_string();
     let has_update = version_lt(current, &latest);
@@ -191,79 +203,47 @@ fn download_blocking(app: &tauri::AppHandle, url: &str, dest: &PathBuf) -> Res<(
     Ok(())
 }
 
-/// 通道 1：gh release download（私有仓库带凭据；无进度回调，原子产出）
-fn download_via_gh(tag: &str, pattern: &str, dest: &Path) -> Res<()> {
-    let out = Command::new("gh")
-        .args([
-            "release",
-            "download",
-            tag,
-            "--repo",
-            REPO,
-            "--pattern",
-            pattern,
-            "--clobber",
-            "--output",
-        ])
-        .arg(dest)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("gh 不可用: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "gh 下载失败: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    if !dest.is_file() {
-        return Err("gh 下载未产出文件".into());
-    }
-    Ok(())
-}
-
-fn install_blocking(app: &tauri::AppHandle, tag: &str, asset_name: &str, url: &str) -> Res<()> {
+/// 仓库已公开：browser_download_url 匿名可下，reqwest 直连即带真实逐字节进度
+fn install_blocking(app: &tauri::AppHandle, asset_name: &str, url: &str) -> Res<()> {
     let dir = updates_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let new_exe = dir.join("AgentHub_update.exe");
-    let _ = std::fs::remove_file(&new_exe);
+    let setup = dir.join(asset_name);
+    let _ = std::fs::remove_file(&setup);
 
-    // 私有仓库的 browser_download_url 匿名访问 404 —— 首选 gh（带凭据），公开仓库回退 reqwest
-    match download_via_gh(tag, asset_name, &new_exe) {
-        Ok(()) => {
-            let _ = app.emit(
-                "update-download-progress",
-                serde_json::json!({ "received": 1, "total": 1 }),
-            );
-        }
-        Err(gh_err) => {
-            download_blocking(app, url, &new_exe).map_err(|dl_err| {
-                format!("下载失败（gh: {gh_err}；直连: {dl_err}）")
-            })?;
-        }
-    }
+    download_blocking(app, url, &setup)?;
 
+    // NSIS 静默安装（复用 whf-stock-board 实证链路）：
+    // ping -n 4 ≈ 等 3s 让当前应用退出；/S 静默；/D= 装回当前安装目录。
+    // NSIS 规范：/D= 必须是最后一个参数且不加引号，含空格也原样取到行尾。
+    // 必须用 raw_arg 原样传整条命令 —— 普通 arg 会转义出 \"，cmd 不认该转义。
     let current = std::env::current_exe().map_err(|e| format!("取当前 exe 路径失败: {e}"))?;
-    let current_str = current.to_string_lossy().replace('/', "\\");
-    let new_str = new_exe.to_string_lossy().replace('/', "\\");
-    let bat = dir.join("apply-update.bat");
+    let install_dir = current
+        .parent()
+        .ok_or_else(|| "取当前安装目录失败".to_string())?;
     let script = format!(
-        "@echo off\r\n timeout /t 2 /nobreak >nul\r\ncopy /y \"{new_str}\" \"{current_str}\"\r\nif errorlevel 1 exit /b 1\r\ndel \"{new_str}\"\r\nstart \"\" \"{current_str}\"\r\n",
+        "ping 127.0.0.1 -n 4 >nul & \"{}\" /S /D={} & start \"\" \"{}\"",
+        setup.to_string_lossy().replace('/', "\\"),
+        install_dir.to_string_lossy().replace('/', "\\"),
+        current.to_string_lossy().replace('/', "\\"),
     );
-    fsutil::atomic_write(&bat, script.as_bytes())?;
-
     Command::new("cmd")
-        .args(["/C", &bat.to_string_lossy()])
+        .arg("/C")
+        .raw_arg(&script)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("启动更新脚本失败: {e}"))?;
-    // bat 自己等 2s 后替换并重启，这里直接退出当前应用
-    app.exit(0);
+        .map_err(|e| format!("启动安装程序失败: {e}"))?;
+    // 延迟 500ms 退出，避免把 cmd 链一并带走（安装器自行等 3s 再静默安装并重启新版）
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        handle.exit(0);
+    });
     Ok(())
 }
 
 // ─── Tauri commands ───
 
-/// 检查更新（gh CLI 优先适配私有仓库，公开 API 兜底）
+/// 检查更新（302 重定向主通道 → 公开 API 兜底）
 #[tauri::command]
 pub async fn update_check(app: tauri::AppHandle) -> Result<UpdateCheckInfo, String> {
     let current = app.package_info().version.to_string();
@@ -275,16 +255,17 @@ pub async fn update_check(app: tauri::AppHandle) -> Result<UpdateCheckInfo, Stri
 /// 更新安装参数（多单词参数收进 input 结构体，规避 IPC 大小写约定）
 #[derive(Debug, serde::Deserialize)]
 pub struct InstallInput {
+    /// 保留字段：曾用于 gh 下载通道，现仅为前端契约兼容
     pub tag: String,
     pub asset_name: String,
     pub asset_url: String,
 }
 
-/// 下载最新 exe 并替换自身后重启（进度经 update-download-progress 事件推送）
+/// 下载 NSIS 安装包并静默安装回原目录后重启（进度经 update-download-progress 事件推送）
 #[tauri::command]
 pub async fn update_install(app: tauri::AppHandle, input: InstallInput) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        install_blocking(&app, &input.tag, &input.asset_name, &input.asset_url)
+        install_blocking(&app, &input.asset_name, &input.asset_url)
     })
     .await
     .map_err(|e| format!("更新任务失败: {e}"))?

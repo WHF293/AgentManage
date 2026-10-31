@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620">
+  <style>text{font-family:'Helvetica Neue',Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif;}</style>
+  <defs>
+    <marker id="m-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="m-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="m-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="m-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="m-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="m-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+  </defs>
+  <rect width="960" height="620" fill="#ffffff"/>
+  <text x="480.0" y="34" font-size="17" fill="#111827" font-weight="700" text-anchor="middle">Model 岛架构 —— ZCode 直写 × WB 写穿</text>
+  <rect x="330" y="56" width="300" height="64" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="81.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">AgentHub · Model 岛</text>
+  <text x="480.0" y="98" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">provider 增删 / 模型勾选 / 默认模型</text>
+  <rect x="350" y="190" width="260" height="120" rx="8" ry="8" fill="#ffffff" stroke="#3eb489" stroke-width="2"/>
+  <text x="480.0" y="215.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">providers.rs</text>
+  <text x="480.0" y="232" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">save：直写 ZCode + 写穿 WB</text>
+  <text x="480.0" y="248" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">delete：双端清理</text>
+  <text x="480.0" y="264" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">set_default / overview 实时读取</text>
+  <rect x="54" y="190" width="230" height="120" rx="8" ry="8" fill="#eff6ff" stroke="#4aa3df" stroke-width="1.5"/>
+  <text x="169.0" y="215.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">~/.zcode/v2/config.json（直写）</text>
+  <text x="169.0" y="232" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">provider.&lt;id&gt;：baseUrl / models</text>
+  <text x="169.0" y="248" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">anthropic / openai-compatible</text>
+  <text x="169.0" y="264" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">Key 只存目标文件，永不入 DB</text>
+  <rect x="676" y="190" width="230" height="120" rx="8" ry="8" fill="#f0fdf4" stroke="#2e9e74" stroke-width="1.5"/>
+  <text x="791.0" y="215.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">~/.workbuddy/models.json（写穿）</text>
+  <text x="791.0" y="232" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">openai-compatible 条目须带 id</text>
+  <text x="791.0" y="248" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">WB 1s debounce 热加载</text>
+  <text x="791.0" y="264" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">即改即生效，无需重启</text>
+  <rect x="54" y="360" width="190" height="88" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="149.0" y="385.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">① models_url 覆写</text>
+  <text x="149.0" y="402" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">手动指定优先</text>
+  <rect x="274" y="360" width="190" height="88" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="369.0" y="385.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">② /v{N} 原样</text>
+  <text x="369.0" y="402" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">base_url + /v1/models</text>
+  <rect x="494" y="360" width="190" height="88" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="589.0" y="385.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">③ 剥离后缀兜底</text>
+  <text x="589.0" y="402" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">去 chat/completions 等尾巴</text>
+  <rect x="714" y="360" width="190" height="88" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="809.0" y="385.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">④ 内置推荐兜底</text>
+  <text x="809.0" y="402" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">GLM 系网关（suggested）</text>
+  <text x="809.0" y="418" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">返回后可编辑再保存</text>
+  <rect x="180" y="500" width="600" height="76" rx="8" ry="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="480.0" y="525.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">隐私红线</text>
+  <text x="480.0" y="542" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">API Key 只存 ZCode 目标文件 / WB models.json，不落 agenthub.db</text>
+  <text x="480.0" y="558" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">Key 不出现在错误信息与日志（header 内传递）</text>
+  <line x1="480" y1="120" x2="480" y2="190" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <line x1="350" y1="250" x2="284" y2="250" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <rect x="300.5" y="229.5" width="33" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="317" y="241.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">直写</text>
+  <line x1="610" y1="250" x2="676" y2="250" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <rect x="626.5" y="229.5" width="33" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="643" y="241.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">写穿</text>
+  <path d="M 169 190 V 150 H 430 V 190" fill="none" stroke="#9333ea" stroke-width="1.8" marker-end="url(#m-purple)" stroke-dasharray="5,3"/>
+  <rect x="116.0" y="141.5" width="368" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="300" y="153.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">resolve_api_key：Key 回读不出 Rust 层</text>
+  <path d="M 430 310 V 336 H 369 V 360" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)" stroke-dasharray="4,3"/>
+  <rect x="279.0" y="327.5" width="402" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="339.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">fetch_models 拉取候选（逐级降级，前一级失败才试下一级）</text>
+  <line x1="244" y1="404" x2="274" y2="404" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="464" y1="404" x2="494" y2="404" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="684" y1="404" x2="714" y2="404" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <text x="480" y="484" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">鉴权：anthropic 原生端点 x-api-key 优先 · 其余 Authorization: Bearer</text>
+  <rect x="16" y="586" width="928" height="26" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <line x1="36" y1="599" x2="62" y2="599" stroke="#2563eb" stroke-width="2" marker-end="url(#m-blue)"/>
+  <text x="68" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">写入双端</text>
+  <line x1="140" y1="599" x2="166" y2="599" stroke="#ea580c" stroke-width="2" marker-end="url(#m-orange)"/>
+  <text x="172" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">UI 控制（虚线为异步拉取）</text>
+  <line x1="359" y1="599" x2="385" y2="599" stroke="#9333ea" stroke-width="2" marker-end="url(#m-purple)"/>
+  <text x="391" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">Key 回读（虚线，不出 Rust 层）</text>
+</svg>

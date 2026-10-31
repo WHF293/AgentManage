@@ -1,10 +1,10 @@
-name: Release AgentHub (Windows amd64 exe)
+name: Release AgentHub (Windows amd64 NSIS)
 
 # 发布口径：
-# - 推送 v* tag → 全量发布：构建 Windows amd64 exe（--no-bundle，仅 exe 不做安装包），
-#   以 AgentHub_v{version}_x64.exe 名义进 GitHub Release
+# - 推送 v* tag → 全量发布：构建 Windows amd64 NSIS 安装包（bundle.targets: [nsis]），
+#   以 AgentHub_v{version}_x64-setup.exe 名义进 GitHub Release
 # - Actions 手动触发 → 从 main 最新提交构建并发布（补传 / 试跑场景）
-# 项目约定（AGENTS.md）：只打包 amd64 exe，不产出 arm64 / nsis / msi。
+# 项目约定（AGENTS.md）：只打包 amd64 NSIS 安装版，不产出 arm64 / msi / 免安装 exe。
 
 on:
   push:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    name: Windows amd64 exe
+    name: Windows amd64 NSIS
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -89,25 +89,25 @@ jobs:
             echo ""
             echo "$NUMBERED"
             echo ""
-            echo "下载下方 Assets 中的 AgentHub_v${VERSION}_x64.exe 直接运行（免安装，单文件）。"
+            echo "下载下方 Assets 中的 AgentHub_v${VERSION}_x64-setup.exe 安装（NSIS 安装版，默认按用户安装免管理员权限）。"
             echo ""
             echo "## 安全提示"
             echo ""
-            echo "本应用未购买代码签名证书，首次运行时 Windows SmartScreen / Defender 可能提示「已保护你的电脑」，属无签名二进制的常见提示，exe 由 GitHub Actions 从仓库源码构建，可自行审计。"
+            echo "本应用未购买代码签名证书，首次运行安装包时 Windows SmartScreen / Defender 可能提示「已保护你的电脑」，属无签名二进制的常见提示，安装包由 GitHub Actions 从仓库源码构建，可自行审计。"
             echo "处理方式：点击「更多信息」→「仍要运行」。"
             echo ""
             echo "数据全部保存在本机 ~/.agenthub/，不会外发。"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build exe (amd64, no bundle)
+      - name: Build NSIS installer (amd64)
         run: pnpm build:exe
 
       - name: Rename artifact
         shell: bash
         run: |
-          cp src-tauri/target/release/agenthub.exe "AgentHub_v${VERSION}_x64.exe"
-          ls -la "AgentHub_v${VERSION}_x64.exe"
+          cp "src-tauri/target/release/bundle/nsis/AgentHub_${VERSION}_x64-setup.exe" "AgentHub_v${VERSION}_x64-setup.exe"
+          ls -la "AgentHub_v${VERSION}_x64-setup.exe"
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -117,5 +117,5 @@ jobs:
           body: ${{ steps.changelog.outputs.body }}
           draft: false
           prerelease: false
-          files: AgentHub_v*_x64.exe
+          files: AgentHub_v*_x64-setup.exe
           fail_on_unmatched_files: true

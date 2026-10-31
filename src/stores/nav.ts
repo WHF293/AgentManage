@@ -15,13 +15,13 @@ export interface NavItem {
   icon: string;
 }
 
-/** 侧栏 7 岛（总览已合并用量页） */
+/** 侧栏 7 岛（总览已合并用量页；用户定版顺序与单数文案） */
 export const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Usage', icon: '▦' },
-  { id: 'skills', label: 'Skills', icon: '▤' },
-  { id: 'mcp', label: 'MCP', icon: '⌗' },
-  { id: 'models', label: 'Models', icon: '✦' },
   { id: 'accounts', label: 'Account', icon: '⇄' },
+  { id: 'skills', label: 'Skill', icon: '▤' },
+  { id: 'mcp', label: 'MCP', icon: '⌗' },
+  { id: 'models', label: 'Model', icon: '✦' },
   { id: 'memory', label: 'Memory', icon: '❑' },
   { id: 'settings', label: 'Setting', icon: '⚙' },
 ];

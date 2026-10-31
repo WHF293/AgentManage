@@ -36,8 +36,16 @@ type ViewMode = 'calendar' | 'chart';
 type AgentFilter = 'all' | 'workbuddy' | 'zcode';
 
 const AGENT_LABEL: Record<string, string> = { zcode: 'ZCode', workbuddy: 'WorkBuddy' };
+/** 双 Agent 身份色（全局定版）：WorkBuddy = 主题绿，ZCode = 天青蓝；汇总 = 主绿 */
 const agentColor = (agent: string) =>
-  agent === 'zcode' ? '#2E9E74' : agent === 'workbuddy' ? '#8FD9BC' : '#3EB489';
+  agent === 'zcode' ? '#4AA3DF' : agent === 'workbuddy' ? '#2E9E74' : '#3EB489';
+/** 模型细分图（柱/饼）显示下限：低于该消耗量的分类直接不显示 */
+const MODEL_MIN_TOKENS = 100_000;
+/** 同 Agent 多模型时的深浅变体（基调 = 身份色，深浅交错保证相邻可辨） */
+const AGENT_PALETTE: Record<string, string[]> = {
+  workbuddy: ['#2E9E74', '#6FC7A5', '#20785A', '#A3DDC6'],
+  zcode: ['#4AA3DF', '#7CBDE9', '#2E86C0', '#A9D6F2'],
+};
 
 const fmtTok = (n: number): string => {
   if (n >= 1e8) return `${(n / 1e8).toFixed(2)} 亿`;
@@ -54,6 +62,17 @@ const themeColors = () => {
     text3: v('--color-text-3', '#8CA096'),
     border: v('--color-border', '#DFEDE3'),
     primary: v('--color-primary', '#3EB489'),
+  };
+};
+
+/** 模型取色：按 Agent 身份色系，同 Agent 内按出现次序取深浅变体 */
+const modelColorFn = () => {
+  const counters: Record<string, number> = {};
+  return (agent: string) => {
+    const pal = AGENT_PALETTE[agent] ?? ['#3EB489', '#6FC7A5', '#20785A', '#A3DDC6'];
+    const i = counters[agent] ?? 0;
+    counters[agent] = i + 1;
+    return pal[i % pal.length];
   };
 };
 
@@ -130,15 +149,15 @@ const detailText = (b: Bucket | undefined, agent: AgentFilter): string => {
   return lines.length > 0 ? lines.join('\n') : '0 token';
 };
 
-/** 五档色阶（GitHub 风格） */
+/** 五档色阶（蓝灰起步、绿色收顶，档位色随主题切换，见 theme.css --heat-N） */
 const heatColor = (v: number, max: number): string => {
   if (!v) return 'var(--color-surface2)';
   const r = v / Math.max(1, max);
-  if (r > 0.6) return 'var(--color-primary-strong)';
-  if (r > 0.35) return '#7BCBA7';
-  if (r > 0.15) return '#A9DFC8';
-  if (r > 0.04) return 'var(--color-primary-soft)';
-  return '#EAF6EF';
+  if (r > 0.6) return 'var(--heat-4)';
+  if (r > 0.35) return 'var(--heat-3)';
+  if (r > 0.15) return 'var(--heat-2)';
+  if (r > 0.04) return 'var(--heat-1)';
+  return 'var(--heat-0)';
 };
 
 /** ECharts hook：callback ref —— 容器挂载/卸载（如视图切换的条件渲染）时自动 init/dispose */
@@ -481,7 +500,7 @@ export function UsagePage() {
         ).map(([v, label]) => (
           <span
             key={v}
-            className={`chip ${agent === v ? 'ok' : 'off'}`}
+            className={`chip ${agent === v ? (v === 'zcode' ? 'zc' : 'ok') : 'off'}`}
             style={{ cursor: 'pointer', fontSize: 11.5, padding: '4px 12px' }}
             onClick={() => setAgent(v)}
           >
@@ -759,7 +778,7 @@ export function UsagePage() {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
-            按模型细分（Top 8 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]}）
+            按模型细分（Top 8 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]} · 低于 10 万 tok 不显示）
           </div>
           <ModelBars overview={overview} agent={agent} />
         </div>
@@ -825,11 +844,15 @@ function DayCurve({ overview, date }: { overview: UsageOverview; date: string })
 /** 按模型细分（当前上下文 overview.models） */
 function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent: AgentFilter }) {
   const models = useMemo(
-    () => (overview?.models ?? []).filter((m) => agent === 'all' || m.agent === agent),
+    () =>
+      (overview?.models ?? []).filter(
+        (m) => (agent === 'all' || m.agent === agent) && m.tokens >= MODEL_MIN_TOKENS,
+      ),
     [overview, agent],
   );
   const ref = useEChart(() => {
     const c = themeColors();
+    const colorOf = modelColorFn();
     const sorted = [...models].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
     return {
       backgroundColor: 'transparent',
@@ -853,7 +876,7 @@ function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent:
           type: 'bar',
           data: sorted.map((m) => ({
             value: m.tokens,
-            itemStyle: { color: agentColor(m.agent), borderRadius: [0, 4, 4, 0] },
+            itemStyle: { color: colorOf(m.agent), borderRadius: [0, 4, 4, 0] },
           })),
           barMaxWidth: 14,
           label: {
@@ -874,16 +897,20 @@ function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent:
 /** 按模型占比（环形饼图，与柱状同数据源；hover 显示 token 数） */
 function ModelPie({ overview, agent }: { overview: UsageOverview | null; agent: AgentFilter }) {
   const models = useMemo(
-    () => (overview?.models ?? []).filter((m) => agent === 'all' || m.agent === agent),
+    () =>
+      (overview?.models ?? []).filter(
+        (m) => (agent === 'all' || m.agent === agent) && m.tokens >= MODEL_MIN_TOKENS,
+      ),
     [overview, agent],
   );
   const ref = useEChart(() => {
     const c = themeColors();
+    const colorOf = modelColorFn();
     const sorted = [...models].sort((a, b) => b.tokens - a.tokens).slice(0, 8);
     const data = sorted.map((m) => ({
       name: `${AGENT_LABEL[m.agent] ?? m.agent}·${m.model || '(unknown)'}`,
       value: m.tokens,
-      itemStyle: { color: agentColor(m.agent) },
+      itemStyle: { color: colorOf(m.agent) },
     }));
     return {
       backgroundColor: 'transparent',

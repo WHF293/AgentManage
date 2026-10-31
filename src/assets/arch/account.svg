@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" width="960" height="640">
+  <style>text{font-family:'Helvetica Neue',Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif;}</style>
+  <defs>
+    <marker id="m-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="m-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="m-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="m-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="m-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="m-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+  </defs>
+  <rect width="960" height="640" fill="#ffffff"/>
+  <text x="480.0" y="34" font-size="17" fill="#111827" font-weight="700" text-anchor="middle">Account 岛架构 —— WB 登录态槽位化与安全切换</text>
+  <rect x="380" y="56" width="200" height="60" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="81.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">AgentHub · Account 岛</text>
+  <rect x="620" y="56" width="280" height="60" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="760.0" y="81.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">wb_overview 探测</text>
+  <text x="760.0" y="98" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">进程运行 / WB 安装 / auth 存在 / 当前账号</text>
+  <rect x="54" y="168" width="150" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="129.0" y="193.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">① 进程检测</text>
+  <text x="129.0" y="210" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">process_running()</text>
+  <text x="129.0" y="226" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">运行中 → 拒绝</text>
+  <text x="129.0" y="242" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">UI 确认后 taskkill</text>
+  <rect x="224" y="168" width="150" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="299.0" y="193.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">② 备份当前 auth</text>
+  <text x="299.0" y="210" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">backups/auth-&lt;ts&gt;/</text>
+  <text x="299.0" y="226" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">文件级复制</text>
+  <rect x="394" y="168" width="150" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="469.0" y="193.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">③ 恢复槽位</text>
+  <text x="469.0" y="210" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">槽位 → tmp</text>
+  <text x="469.0" y="226" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">rename 原子替换</text>
+  <rect x="564" y="168" width="150" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="639.0" y="193.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">④ 校验</text>
+  <text x="639.0" y="210" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">JSON 可解析</text>
+  <text x="639.0" y="226" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">uid 一致性</text>
+  <rect x="734" y="168" width="150" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="809.0" y="193.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">⑤ 启动 WB</text>
+  <text x="809.0" y="210" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">WorkBuddy.exe</text>
+  <text x="809.0" y="226" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">spawn 拉起</text>
+  <rect x="54" y="330" width="300" height="118" rx="8" ry="8" fill="#ddf3e9" stroke="#3eb489" stroke-width="1.5"/>
+  <text x="204.0" y="355.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">槽位库 ~/.agenthub/slots/&lt;slot-id&gt;/</text>
+  <text x="204.0" y="372" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">workbuddy-desktop.info 快照</text>
+  <text x="204.0" y="388" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">SQLite wb_slots：id/label/uid/uin</text>
+  <text x="204.0" y="404" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">save_slot 存档 · 删除槽位</text>
+  <rect x="660" y="330" width="246" height="70" rx="8" ry="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="783.0" y="355.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">失败回滚</text>
+  <text x="783.0" y="372" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">恢复最近 auth 备份</text>
+  <text x="783.0" y="388" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">latest_auth_backup()</text>
+  <rect x="54" y="496" width="560" height="88" rx="8" ry="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="334.0" y="521.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">隐私红线</text>
+  <text x="334.0" y="538" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">auth 只做文件级复制，永不读 token 内容</text>
+  <text x="334.0" y="554" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">仅解析 uid / uin / nickname 元数据（parse_meta）</text>
+  <rect x="654" y="496" width="252" height="88" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="780.0" y="521.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">~/.workbuddy-launcher</text>
+  <text x="780.0" y="538" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">旧 Save-Login-A.bat 槽位</text>
+  <text x="780.0" y="554" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">import_legacy 按 uid 去重收编</text>
+  <path d="M 430 116 V 140 H 129 V 168" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <rect x="237.5" y="131.5" width="125" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="300" y="143.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">切换 / 存槽位命令</text>
+  <line x1="580" y1="86" x2="620" y2="86" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)" stroke-dasharray="4,3"/>
+  <line x1="204" y1="220" x2="224" y2="220" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="374" y1="220" x2="394" y2="220" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="544" y1="220" x2="564" y2="220" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="714" y1="220" x2="734" y2="220" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <path d="M 250 330 V 300 H 469 V 272" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <rect x="305.5" y="291.5" width="79" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="345" y="303.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">读取槽位快照</text>
+  <line x1="639" y1="272" x2="700" y2="330" stroke="#dc2626" stroke-width="1.6" marker-end="url(#m-red)" stroke-dasharray="5,3"/>
+  <line x1="809" y1="272" x2="809" y2="330" stroke="#dc2626" stroke-width="1.6" marker-end="url(#m-red)" stroke-dasharray="5,3"/>
+  <rect x="748.0" y="291.5" width="148" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="822" y="303.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">校验/启动失败 → 回滚</text>
+  <path d="M 680 496 V 440 H 354" fill="none" stroke="#6b7280" stroke-width="1.8" marker-end="url(#m-gray)" stroke-dasharray="4,3"/>
+  <rect x="486.5" y="431.5" width="67" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="520" y="443.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">旧槽位收编</text>
+  <rect x="16" y="606" width="928" height="26" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <line x1="36" y1="619" x2="62" y2="619" stroke="#2563eb" stroke-width="2" marker-end="url(#m-blue)"/>
+  <text x="68" y="623" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">切换主流程</text>
+  <line x1="151" y1="619" x2="177" y2="619" stroke="#16a34a" stroke-width="2" marker-end="url(#m-green)"/>
+  <text x="183" y="623" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">槽位读取</text>
+  <line x1="255" y1="619" x2="281" y2="619" stroke="#ea580c" stroke-width="2" marker-end="url(#m-orange)"/>
+  <text x="287" y="623" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">UI 控制</text>
+  <line x1="370" y1="619" x2="396" y2="619" stroke="#dc2626" stroke-width="2" marker-end="url(#m-red)"/>
+  <text x="402" y="623" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">失败回滚（虚线）</text>
+  <line x1="520" y1="619" x2="546" y2="619" stroke="#6b7280" stroke-width="2" marker-end="url(#m-gray)"/>
+  <text x="552" y="623" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">收编/探测（虚线）</text>
+</svg>

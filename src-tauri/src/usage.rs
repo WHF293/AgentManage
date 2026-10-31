@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{Local, TimeZone};
 use rusqlite::OpenFlags;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::adapters::{wb, zcode};
@@ -690,7 +690,6 @@ struct Window {
     cal_start: String,
     cal_end: String,
     is_day: bool,
-    is_week_bars: bool,
 }
 
 fn parse_range(range: &str) -> Window {
@@ -715,7 +714,6 @@ fn parse_range(range: &str) -> Window {
                         cal_start: label.clone(),
                         cal_end: label,
                         is_day: false,
-                        is_week_bars: false,
                     };
                 }
             }
@@ -733,7 +731,6 @@ fn parse_range(range: &str) -> Window {
                 cal_start: format!("{y}-01-01"),
                 cal_end: format!("{y}-12-31"),
                 is_day: false,
-                is_week_bars: false,
             };
         }
     }
@@ -755,7 +752,6 @@ fn parse_range(range: &str) -> Window {
                     cal_start: month.to_string(),
                     cal_end: month.to_string(),
                     is_day: true,
-                    is_week_bars: false,
                 };
             }
         }
@@ -776,7 +772,6 @@ fn parse_range(range: &str) -> Window {
                     .format("%Y-%m-%d")
                     .to_string(),
                 is_day: false,
-                is_week_bars: true,
             };
         }
     }
@@ -794,7 +789,6 @@ fn parse_range(range: &str) -> Window {
                 cal_start: start[..10].to_string(),
                 cal_end: today.clone(),
                 is_day: false,
-                is_week_bars: n <= 7,
             }
         }
         _ => match range {
@@ -804,7 +798,6 @@ fn parse_range(range: &str) -> Window {
                 cal_start: now.format("%Y-%m").to_string(),
                 cal_end: now.format("%Y-%m").to_string(),
                 is_day: true,
-                is_week_bars: false,
             },
             "year" => {
                 let start = now.format("%Y-01-01 00:00:00").to_string();
@@ -814,7 +807,6 @@ fn parse_range(range: &str) -> Window {
                     cal_start: start[..10].to_string(),
                     cal_end: today.clone(),
                     is_day: false,
-                    is_week_bars: false,
                 }
             }
             "all" => Window {
@@ -823,7 +815,6 @@ fn parse_range(range: &str) -> Window {
                 cal_start: "2000-01-01".into(),
                 cal_end: today.clone(),
                 is_day: false,
-                is_week_bars: false,
             },
             _ => Window {
                 start: format!("{today} 00:00:00"),
@@ -831,7 +822,6 @@ fn parse_range(range: &str) -> Window {
                 cal_start: now.format("%Y-%m").to_string(),
                 cal_end: now.format("%Y-%m").to_string(),
                 is_day: true,
-                is_week_bars: false,
             },
         },
     }

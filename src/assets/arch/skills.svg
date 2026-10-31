@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620">
+  <style>text{font-family:'Helvetica Neue',Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif;}</style>
+  <defs>
+    <marker id="m-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="m-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="m-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="m-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="m-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="m-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+  </defs>
+  <rect width="960" height="620" fill="#ffffff"/>
+  <text x="480.0" y="34" font-size="17" fill="#111827" font-weight="700" text-anchor="middle">Skills 岛架构 —— 中央仓库 × 双端软链分发</text>
+  <rect x="54" y="64" width="200" height="96" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="154.0" y="89.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">Skill 市场 · market.rs</text>
+  <text x="154.0" y="106" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">anthropics/skills</text>
+  <text x="154.0" y="122" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">obra/superpowers</text>
+  <text x="154.0" y="138" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">cexll/myclaude</text>
+  <rect x="360" y="64" width="240" height="96" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="89.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">AgentHub · Skills 岛</text>
+  <text x="480.0" y="106" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">React · Tauri IPC</text>
+  <text x="480.0" y="122" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">总览 / 启停 / 重建链接 / 删除</text>
+  <rect x="706" y="64" width="200" height="96" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="806.0" y="89.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">巡检 · link_status_for</text>
+  <text x="806.0" y="106" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">linked / diverged</text>
+  <text x="806.0" y="122" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">broken / missing</text>
+  <text x="806.0" y="138" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">断链一键重建</text>
+  <rect x="350" y="286" width="260" height="104" rx="8" ry="8" fill="#ddf3e9" stroke="#3eb489" stroke-width="1.5"/>
+  <text x="480.0" y="311.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">中央仓库 ~/.agenthub/skills</text>
+  <text x="480.0" y="328" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">单一事实源（目录）</text>
+  <text x="480.0" y="344" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">SQLite skills 表存元数据</text>
+  <text x="480.0" y="360" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">enabled / source / source_ref</text>
+  <rect x="54" y="286" width="200" height="104" rx="8" ry="8" fill="#f0fdf4" stroke="#2e9e74" stroke-width="1.5"/>
+  <text x="154.0" y="311.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">WorkBuddy（活端）</text>
+  <text x="154.0" y="328" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">~/.workbuddy/skills/&lt;name&gt;</text>
+  <text x="154.0" y="344" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">逐项链 · 云同步会重写</text>
+  <rect x="706" y="286" width="200" height="104" rx="8" ry="8" fill="#eff6ff" stroke="#4aa3df" stroke-width="1.5"/>
+  <text x="806.0" y="311.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">ZCode（静端）</text>
+  <text x="806.0" y="328" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">~/.zcode/skills</text>
+  <text x="806.0" y="344" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">整目录链（一次建链）</text>
+  <rect x="180" y="470" width="600" height="92" rx="8" ry="8" fill="#faf5ff" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="480.0" y="495.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">fsutil.rs · 底座</text>
+  <text x="480.0" y="512" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">软链三级降级：symlink → junction → copy（自动探测）</text>
+  <text x="480.0" y="528" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">替换实目录前一律备份 ~/.agenthub/backups/ · 原子写 tmp+rename</text>
+  <path d="M 200 160 V 204 H 302 V 312 H 350" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <rect x="160.5" y="195.5" width="183" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="252" y="207.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">市场安装：先进中央，再分发双端</text>
+  <line x1="480" y1="160" x2="480" y2="286" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <rect x="406.0" y="205.5" width="148" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="217.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">增删 / 启停 / 迁移</text>
+  <path d="M 806 160 V 204 H 670 V 312 H 610" fill="none" stroke="#6b7280" stroke-width="1.8" marker-end="url(#m-gray)" stroke-dasharray="4,3"/>
+  <rect x="700.5" y="195.5" width="79" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="740" y="207.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">双端状态实测</text>
+  <line x1="350" y1="322" x2="254" y2="322" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <rect x="280.0" y="299.5" width="44" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="302" y="311.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">逐项链</text>
+  <line x1="254" y1="374" x2="350" y2="374" stroke="#6b7280" stroke-width="1.8" marker-end="url(#m-gray)" stroke-dasharray="4,3"/>
+  <rect x="216.5" y="393.5" width="171" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="302" y="405.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">云同步重写→diverged</text>
+  <line x1="610" y1="322" x2="706" y2="322" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <rect x="630.0" y="301.5" width="56" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="658" y="313.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">整目录链</text>
+  <line x1="480" y1="390" x2="480" y2="470" stroke="#6b7280" stroke-width="1.8" marker-end="url(#m-gray)" stroke-dasharray="4,3"/>
+  <rect x="440.5" y="427.5" width="79" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="439.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">写路径经底座</text>
+  <rect x="16" y="586" width="928" height="26" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <line x1="36" y1="599" x2="62" y2="599" stroke="#2563eb" stroke-width="2" marker-end="url(#m-blue)"/>
+  <text x="68" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">市场导入</text>
+  <line x1="140" y1="599" x2="166" y2="599" stroke="#ea580c" stroke-width="2" marker-end="url(#m-orange)"/>
+  <text x="172" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">UI 控制</text>
+  <line x1="255" y1="599" x2="281" y2="599" stroke="#16a34a" stroke-width="2" marker-end="url(#m-green)"/>
+  <text x="287" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">建链/分发</text>
+  <line x1="370" y1="599" x2="396" y2="599" stroke="#6b7280" stroke-width="2" marker-end="url(#m-gray)"/>
+  <text x="402" y="603" font-size="11" fill="#6b7280" font-weight="400" text-anchor="start">状态实测（虚线）</text>
+</svg>
