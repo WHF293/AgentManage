@@ -1,7 +1,7 @@
 {
   "name": "agenthub",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "build:exe": "tauri build --no-bundle"
+    "build:exe": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.7.0",
