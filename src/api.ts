@@ -282,6 +282,7 @@ export interface UpdateCheckInfo {
   current: string;
   latest: string;
   has_update: boolean;
+  tag: string;
   asset_name: string;
   asset_url: string;
   release_url: string;
@@ -289,8 +290,8 @@ export interface UpdateCheckInfo {
 
 export const updateCheck = () => invoke<UpdateCheckInfo>('update_check');
 
-export const updateInstall = (assetUrl: string) =>
-  invoke<void>('update_install', { assetUrl });
+export const updateInstall = (info: { tag: string; asset_name: string; asset_url: string }) =>
+  invoke<void>('update_install', { input: info });
 
 // ─── M7 Skill 市场 ───
 

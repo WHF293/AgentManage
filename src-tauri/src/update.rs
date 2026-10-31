@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
@@ -22,6 +22,8 @@ pub struct UpdateCheckInfo {
     pub current: String,
     pub latest: String,
     pub has_update: bool,
+    /// Release tag（gh 下载通道用）
+    pub tag: String,
     pub asset_name: String,
     pub asset_url: String,
     pub release_url: String,
@@ -137,6 +139,7 @@ fn check_blocking(current: &str) -> Res<UpdateCheckInfo> {
     let has_update = version_lt(current, &latest);
     Ok(UpdateCheckInfo {
         current: current.to_string(),
+        tag: asset.tag,
         latest,
         has_update,
         asset_name: asset.name,
@@ -188,12 +191,56 @@ fn download_blocking(app: &tauri::AppHandle, url: &str, dest: &PathBuf) -> Res<(
     Ok(())
 }
 
-fn install_blocking(app: &tauri::AppHandle, url: &str) -> Res<()> {
+/// 通道 1：gh release download（私有仓库带凭据；无进度回调，原子产出）
+fn download_via_gh(tag: &str, pattern: &str, dest: &Path) -> Res<()> {
+    let out = Command::new("gh")
+        .args([
+            "release",
+            "download",
+            tag,
+            "--repo",
+            REPO,
+            "--pattern",
+            pattern,
+            "--clobber",
+            "--output",
+        ])
+        .arg(dest)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("gh 不可用: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "gh 下载失败: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    if !dest.is_file() {
+        return Err("gh 下载未产出文件".into());
+    }
+    Ok(())
+}
+
+fn install_blocking(app: &tauri::AppHandle, tag: &str, asset_name: &str, url: &str) -> Res<()> {
     let dir = updates_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let new_exe = dir.join("AgentHub_update.exe");
     let _ = std::fs::remove_file(&new_exe);
-    download_blocking(app, url, &new_exe)?;
+
+    // 私有仓库的 browser_download_url 匿名访问 404 —— 首选 gh（带凭据），公开仓库回退 reqwest
+    match download_via_gh(tag, asset_name, &new_exe) {
+        Ok(()) => {
+            let _ = app.emit(
+                "update-download-progress",
+                serde_json::json!({ "received": 1, "total": 1 }),
+            );
+        }
+        Err(gh_err) => {
+            download_blocking(app, url, &new_exe).map_err(|dl_err| {
+                format!("下载失败（gh: {gh_err}；直连: {dl_err}）")
+            })?;
+        }
+    }
 
     let current = std::env::current_exe().map_err(|e| format!("取当前 exe 路径失败: {e}"))?;
     let current_str = current.to_string_lossy().replace('/', "\\");
@@ -225,10 +272,20 @@ pub async fn update_check(app: tauri::AppHandle) -> Result<UpdateCheckInfo, Stri
         .map_err(|e| format!("检测任务失败: {e}"))?
 }
 
+/// 更新安装参数（多单词参数收进 input 结构体，规避 IPC 大小写约定）
+#[derive(Debug, serde::Deserialize)]
+pub struct InstallInput {
+    pub tag: String,
+    pub asset_name: String,
+    pub asset_url: String,
+}
+
 /// 下载最新 exe 并替换自身后重启（进度经 update-download-progress 事件推送）
 #[tauri::command]
-pub async fn update_install(app: tauri::AppHandle, asset_url: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || install_blocking(&app, &asset_url))
-        .await
-        .map_err(|e| format!("更新任务失败: {e}"))?
+pub async fn update_install(app: tauri::AppHandle, input: InstallInput) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_blocking(&app, &input.tag, &input.asset_name, &input.asset_url)
+    })
+    .await
+    .map_err(|e| format!("更新任务失败: {e}"))?
 }

@@ -70,7 +70,12 @@ export function TitleBar() {
     setUpdState('downloading');
     setDlPercent(0);
     try {
-      await updateInstall(updInfo.asset_url); // 成功后应用自动退出并由 bat 重启新版
+      // 成功后应用自动退出并由 bat 替换重启新版（gh 通道无逐字节进度，完成即退出）
+      await updateInstall({
+        tag: updInfo.tag,
+        asset_name: updInfo.asset_name,
+        asset_url: updInfo.asset_url,
+      });
     } catch (e) {
       toast(`更新失败：${e instanceof Error ? e.message : String(e)}`, 'err');
       setUpdState('idle');

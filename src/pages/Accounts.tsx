@@ -227,6 +227,20 @@ export function AccountsPage() {
                     ⇄ 切换到此账号
                   </button>
                 )}
+                <button
+                  className="btn gh"
+                  title={
+                    data?.process_running
+                      ? 'WorkBuddy 已在运行'
+                      : s.file_ok
+                        ? '以该账号启动 WorkBuddy（若非当前登录态会先切换）'
+                        : '槽位文件缺失'
+                  }
+                  onClick={() => void doSwitch(s.id, s.label, false)}
+                  disabled={busy || !s.file_ok || data?.process_running}
+                >
+                  ▶ 启动
+                </button>
                 <button className="btn gh" onClick={() => removeSlot(s.id, s.label)} disabled={busy}>
                   删除
                 </button>
