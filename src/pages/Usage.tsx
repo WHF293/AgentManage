@@ -7,7 +7,7 @@ import {
   TitleComponent,
   TooltipComponent,
 } from 'echarts/components';
-import { BarChart, LineChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart } from 'echarts/charts';
 import { CanvasRenderer } from 'echarts/renderers';
 import {
   usageCollect,
