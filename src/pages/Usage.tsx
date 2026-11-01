@@ -669,9 +669,11 @@ export function UsagePage() {
         </div>
       </div>
 
-      {/* 主区：日历 或 曲线 */}
+      {/* 主区：日历 或 曲线。day 粒度下日历与当日 24h 曲线左右并排且等高
+          （各 min 500px，一行放不下两个时自动换行；单卡片时占满整行） */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
       {viewMode === 'calendar' ? (
-        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+        <div className="card" style={{ padding: 14, flex: '1 1 500px', minWidth: 500 }}>
           {/* 年历：年份格 */}
           {granularity === 'year' && (
             <>
@@ -935,17 +937,18 @@ export function UsagePage() {
           )}
         </div>
       ) : (
-        <div className="card" style={{ padding: 8, marginBottom: 12 }}>
+        <div className="card" style={{ padding: 8, flex: '1 1 500px', minWidth: 500 }}>
           <div ref={chartRef} style={{ width: '100%', height: 320 }} />
         </div>
       )}
 
       {/* 当日 24h 曲线（点日格后展示） */}
       {granularity === 'day' && selectedDate && overview?.curve && overview.curve.length > 0 && (
-        <div className="card" style={{ padding: 8, marginBottom: 12 }}>
+        <div className="card" style={{ padding: 8, flex: '1 1 500px', minWidth: 500, display: 'flex', flexDirection: 'column' }}>
           <DayCurve overview={overview} date={selectedDate} scope={scope} accountLabel={accountLabel} />
         </div>
       )}
+      </div>
 
       {/* 按模型细分：柱状 + 饼图 双图并排 */}
       <div className="grid grid-cols-2 gap-3">
@@ -1027,7 +1030,7 @@ function DayCurve({
       series,
     } satisfies echarts.EChartsCoreOption;
   }, [overview, date, scope, accountLabel]);
-  return <div ref={ref} style={{ width: '100%', height: 260 }} />;
+  return <div ref={ref} style={{ width: '100%', flex: 1, minHeight: 260 }} />;
 }
 
 /** 按模型细分（当前上下文 overview.models） */

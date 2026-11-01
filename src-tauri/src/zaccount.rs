@@ -4,6 +4,7 @@
 //! AgentHub 不解密、不读取、只整文件复制）。流程：备份 → 复制槽位 → JSON 校验 →
 //! 失败回滚。ZCode 为 CLI（每次启动重读凭据），无需进程管理。
 
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -49,9 +50,14 @@ pub struct ZcodeAccountOverview {
 }
 
 /// ZCode.exe 进程探测（与 WB 同构：tasklist /FI）
+/// 注意必须 CREATE_NO_WINDOW：GUI 程序裸拉控制台子进程时，Win11 默认终端
+/// （Windows Terminal）会弹出一个可见窗口承载它 —— 即 Account 岛每 10s 轮询
+/// 「桌面闪现透明框」的根因（2026-11-01 实锤）。
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 fn zcode_running() -> bool {
     Command::new("tasklist")
         .args(["/FI", "IMAGENAME eq ZCode.exe", "/NH"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
