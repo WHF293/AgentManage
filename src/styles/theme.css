@@ -509,6 +509,7 @@ body {
   background: color-mix(in srgb, var(--color-surface2) 55%, transparent);
   display: flex;
   flex-direction: column;
+  transition: width 0.25s ease, padding 0.25s ease;
 }
 .sidebar .logo {
   display: flex;
@@ -517,6 +518,8 @@ body {
   font-weight: 800;
   padding: 4px 8px 14px;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .nv {
   display: flex;
@@ -546,6 +549,73 @@ body {
   width: 16px;
   text-align: center;
   flex: none;
+}
+
+/* 收起态：只显示 icon，hover 浮出文案气泡 */
+.sidebar.collapsed {
+  width: 56px;
+  padding: 12px 6px;
+}
+.sidebar.collapsed .logo {
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+.sidebar.collapsed .logo .logo-text {
+  display: none;
+}
+.sidebar.collapsed .nv {
+  justify-content: center;
+  padding: 8px 0;
+  position: relative;
+}
+.sidebar.collapsed .nv .nv-label {
+  display: none;
+}
+.sidebar.collapsed .nv::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-6px);
+  background: var(--color-text-1);
+  color: var(--color-surface);
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 60;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.sidebar.collapsed .nv:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* 侧栏收起/展开开关（底部） */
+.side-toggle {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-3);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.side-toggle:hover {
+  background: color-mix(in srgb, var(--color-text-1) 6%, transparent);
+  color: var(--color-text-1);
+}
+.sidebar.collapsed .side-toggle {
+  text-align: center;
+  padding: 8px 0;
 }
 
 /* 滚动条 */
