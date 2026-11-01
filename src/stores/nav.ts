@@ -8,7 +8,8 @@ export type PageId =
   | 'models'
   | 'memory'
   | 'plugins'
-  | 'settings';
+  | 'settings'
+  | 'architecture';
 
 export interface NavItem {
   id: PageId;
@@ -16,7 +17,7 @@ export interface NavItem {
   icon: string;
 }
 
-/** 侧栏 8 岛（总览已合并用量页；用户定版顺序与单数文案） */
+/** 侧栏 9 岛（总览已合并用量页；用户定版顺序与单数文案） */
 export const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Usage', icon: '▦' },
   { id: 'accounts', label: 'Account', icon: '⇄' },
@@ -26,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'memory', label: 'Memory', icon: '❑' },
   { id: 'plugins', label: 'Plugin', icon: '⧉' },
   { id: 'settings', label: 'Setting', icon: '⚙' },
+  { id: 'architecture', label: 'Architecture', icon: '⬡' },
 ];
 
 interface NavState {

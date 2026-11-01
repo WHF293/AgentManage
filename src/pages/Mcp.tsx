@@ -13,8 +13,6 @@ import {
 import { agentChipClass, agentMeta } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog } from '../common/components/ConfirmDialog';
-import { ArchHelp } from '../common/components/ArchHelp';
-import mcpArch from '../assets/arch/mcp.svg';
 
 const STATUS_TEXT: Record<string, string> = {
   ok: '✓',
@@ -568,11 +566,6 @@ export function McpPage() {
           onCancel={() => setDeleting(null)}
         />
       )}
-      <ArchHelp
-        title="MCP 岛架构"
-        desc="统一定义存 SQLite mcp_servers（按 agent 的启用态 JSON）；各启用插件端由适配器完成格式翻译与合并式写入（仅覆盖托管容器，timeout/headers 等原样保留）。新增 agent 适配器零改动接入。"
-        img={mcpArch}
-      />
     </div>
   );
 }

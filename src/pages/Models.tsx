@@ -12,8 +12,6 @@ import {
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
 import { isAgentEnabled, useEnabledAgents } from '../stores/plugins';
-import { ArchHelp } from '../common/components/ArchHelp';
-import modelsArch from '../assets/arch/models.svg';
 
 const field: React.CSSProperties = {
   border: '1px solid var(--color-border)',
@@ -583,11 +581,6 @@ export function ModelsPage() {
           onCancel={() => setDefaultTarget(null)}
         />
       )}
-      <ArchHelp
-        title="Model 岛架构"
-        desc="ZCode v2/config.json 直写 + WB models.json 写穿（1s debounce 热加载）；/v1/models 四级候选链逐级降级；API Key 只存目标文件，永不入库。"
-        img={modelsArch}
-      />
     </div>
   );
 }

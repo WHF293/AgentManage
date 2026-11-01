@@ -12,6 +12,7 @@ import { AccountsPage } from './pages/Accounts';
 import { MemoryPage } from './pages/Memory';
 import { PluginsPage } from './pages/Plugins';
 import { SettingsPage } from './pages/Settings';
+import { ArchitecturePage } from './pages/Architecture';
 
 function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
@@ -45,6 +46,8 @@ function CurrentPage() {
       return <PluginsPage />;
     case 'settings':
       return <SettingsPage />;
+    case 'architecture':
+      return <ArchitecturePage />;
   }
 }
 

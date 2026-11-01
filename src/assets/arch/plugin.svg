@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620">
+  <style>text{font-family:'Helvetica Neue',Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif;}</style>
+  <defs>
+    <marker id="p-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="p-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="p-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="p-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+  </defs>
+  <rect width="960" height="620" fill="#ffffff"/>
+  <text x="480.0" y="34" font-size="17" fill="#111827" font-weight="700" text-anchor="middle">Plugin 架构 —— 可插拔适配器：每个 agent 适配器 = 一个插件</text>
+
+  <rect x="54" y="60" width="264" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="186.0" y="83.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">首次启动 · 自动探测</text>
+  <text x="186.0" y="101" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">plugin_state 空表时逐适配器 installed()</text>
+  <text x="186.0" y="117" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">装了即默认启用（source = auto）</text>
+  <text x="186.0" y="133" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">只发生一次，之后只读用户配置</text>
+
+  <rect x="348" y="60" width="264" height="104" rx="8" ry="8" fill="#faf5ff" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="480.0" y="83.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">plugin_state 表（持久化）</text>
+  <text x="480.0" y="101" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">agent · enabled · source(auto/manual)</text>
+  <text x="480.0" y="117" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">手动开关写 source='manual'</text>
+  <text x="480.0" y="133" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">后续启动只读此表，绝不自动变更</text>
+
+  <rect x="642" y="60" width="264" height="104" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="774.0" y="83.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">Plugin 岛 UI</text>
+  <text x="774.0" y="101" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">注册表全量 × 启用态（含未安装）</text>
+  <text x="774.0" y="117" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">开关 → refreshPlugins() 全局广播</text>
+  <text x="774.0" y="133" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">各岛实时联动置灰 / 恢复</text>
+
+  <rect x="280" y="204" width="400" height="128" rx="8" ry="8" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="480.0" y="227.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">adapters/mod.rs · AgentAdapter trait + 静态注册表</text>
+  <text x="480.0" y="246" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">id / display_name / desc / installed() / caps（skills · mcp）</text>
+  <text x="480.0" y="262" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">skills 域：链接策略 PerSkill | WholeDir · relink_skill · whole_link_active</text>
+  <text x="480.0" y="278" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">MCP 域：mcp_config 容器形态 · entry 实测判定 · to_mcp_entry 翻译</text>
+  <text x="480.0" y="302" font-size="11" fill="#92400e" font-weight="600" text-anchor="middle">registry() / by_id() —— 引擎遍历注册表，不认识具体 agent</text>
+
+  <rect x="54" y="216" width="176" height="80" rx="8" ry="8" fill="#f0fdf4" stroke="#2e9e74" stroke-width="1.5"/>
+  <text x="142.0" y="240.0" font-size="13" fill="#111827" font-weight="600" text-anchor="middle">wb.rs（内置）</text>
+  <text x="142.0" y="257" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">PerSkill 逐项链</text>
+  <text x="142.0" y="273" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">auth_found / wb_auto</text>
+
+  <rect x="730" y="216" width="176" height="80" rx="8" ry="8" fill="#eff6ff" stroke="#4aa3df" stroke-width="1.5"/>
+  <text x="818.0" y="240.0" font-size="13" fill="#111827" font-weight="600" text-anchor="middle">zcode.rs（内置）</text>
+  <text x="818.0" y="257" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">WholeDir 整目录链</text>
+  <text x="818.0" y="273" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">社区 agent 同构接入位</text>
+
+  <rect x="54" y="382" width="852" height="92" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="404" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">enabled_adapters() 门控传播（停用即全链失效）</text>
+  <text x="480.0" y="423" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">引擎层：migrate 分发 · mcp overview/adopt/sync_all/toggle · market 安装 · usage 采集（跳过停用端，历史保留）</text>
+  <text x="480.0" y="439" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">岛层：Account 槽位置灰不可操作 · Model 主存储空态 · Memory 列表过滤 · Skills/MCP 只渲染启用端</text>
+  <text x="480.0" y="457" font-size="11" fill="#92400e" font-weight="600" text-anchor="middle">原则：读操作放行（供置灰展示），写操作 / 唤起 agent 一律 require_enabled 拒绝</text>
+
+  <rect x="180" y="516" width="600" height="72" rx="8" ry="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="480.0" y="539.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">社区新增 agent 三步接入（引擎零改动）</text>
+  <text x="480.0" y="557" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">① adapters/&lt;id&gt;.rs 实现 AgentAdapter（按能力裁剪 caps） → ② mod.rs REGISTRY 加一行</text>
+  <text x="480.0" y="573" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">→ ③ 前端 src/agents.ts 补身份色（未知 agent 自动回落中性样式）</text>
+
+  <line x1="186" y1="164" x2="240" y2="204" stroke="#6b7280" stroke-width="1.8" stroke-dasharray="4,3" marker-end="url(#p-gray)"/>
+  <line x1="480" y1="164" x2="480" y2="204" stroke="#a78bfa" stroke-width="1.8" marker-end="url(#p-orange)"/>
+  <line x1="774" y1="164" x2="720" y2="204" stroke="#2563eb" stroke-width="1.8" marker-end="url(#p-blue)"/>
+  <rect x="366.0" y="175.5" width="228" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="187.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">开关持久化 ↔ 状态读取</text>
+  <line x1="230" y1="256" x2="280" y2="256" stroke="#16a34a" stroke-width="1.8" marker-end="url(#p-green)"/>
+  <line x1="680" y1="256" x2="730" y2="256" stroke="#16a34a" stroke-width="1.8" marker-end="url(#p-green)"/>
+  <rect x="240.0" y="236.5" width="30" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="255" y="248.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">impl</text>
+  <rect x="690.0" y="236.5" width="30" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="705" y="248.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">impl</text>
+  <line x1="480" y1="332" x2="480" y2="382" stroke="#ea580c" stroke-width="1.8" marker-end="url(#p-orange)"/>
+  <rect x="354.0" y="348.5" width="252" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="360.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">每次调用按 enabled_ids 过滤</text>
+  <line x1="480" y1="474" x2="480" y2="516" stroke="#16a34a" stroke-width="1.8" marker-end="url(#p-green)"/>
+  <rect x="320.0" y="486.5" width="320" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="498.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">新增适配器即插即用 · Plugin 岛自动出现开关</text>
+</svg>

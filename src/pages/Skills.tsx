@@ -20,8 +20,6 @@ import {
 import { agentChipClass } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog } from '../common/components/ConfirmDialog';
-import { ArchHelp } from '../common/components/ArchHelp';
-import skillsArch from '../assets/arch/skills.svg';
 
 type SkillView = 'installed' | 'missing' | 'all';
 
@@ -661,11 +659,6 @@ export function SkillsPage() {
           onCancel={() => setDeleting(null)}
         />
       )}
-      <ArchHelp
-        title="Skills 岛架构"
-        desc="中央仓库 ~/.agenthub/skills 单一事实源；各启用插件按适配器声明策略分发（逐项链 / 整目录链）；软链三级降级 symlink→junction→copy，替换实目录前自动备份。"
-        img={skillsArch}
-      />
     </div>
   );
 }

@@ -13,8 +13,6 @@ import {
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
 import { LogoMark } from '../common/components/LogoMark';
-import { ArchHelp } from '../common/components/ArchHelp';
-import memoryArch from '../assets/arch/memory.svg';
 import { toast } from '../stores/ui';
 
 const fmtSize = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
@@ -457,11 +455,6 @@ export function MemoryPage() {
         ))}
       </div>
       {tab === 'global' ? <GlobalMemory /> : <ProjectMemory />}
-      <ArchHelp
-        title="Memory 岛架构"
-        desc="全局记忆统一真身 ~/.agenthub/MEMORY.md，双端以文件符号链接共写；项目记忆 .ai/ 桥接：init 注入标记块 / sync FNV 指纹漂移检测 / consolidate 蒸馏。"
-        img={memoryArch}
-      />
     </div>
   );
 }

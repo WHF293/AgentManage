@@ -28,8 +28,6 @@ import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
 import { toast } from '../stores/ui';
 import { isAgentEnabled, useEnabledAgents } from '../stores/plugins';
-import { ArchHelp } from '../common/components/ArchHelp';
-import accountArch from '../assets/arch/account.svg';
 
 const mask = (s: string) => (s.length > 8 ? `${s.slice(0, 6)}…` : s || '—');
 
@@ -828,11 +826,6 @@ export function AccountsPage() {
           onCancel={() => setRenaming(null)}
         />
       )}
-      <ArchHelp
-        title="Account 岛架构"
-        desc="双 Agent 槽位化：登录态只做文件级复制永不读内容；WB 走 检测→备份→原子替换→校验→启动，失败自动回滚最近备份；ZCode 备份→原子写入→JSON 校验，下次启动生效。WB 剩余积分 = 每月总额度 − 本月已用（账单同源）；ZCode 五小时/周额度走 bigmodel 官方接口（读 ZCode 配置中的 Coding Plan Key）。"
-        img={accountArch}
-      />
     </div>
   );
 }

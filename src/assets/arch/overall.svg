@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 660" width="960" height="660">
+  <style>text{font-family:'Helvetica Neue',Helvetica,Arial,'PingFang SC','Microsoft YaHei',sans-serif;}</style>
+  <defs>
+    <marker id="m-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="m-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="m-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="m-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+  </defs>
+  <rect width="960" height="660" fill="#ffffff"/>
+  <text x="480.0" y="34" font-size="17" fill="#111827" font-weight="700" text-anchor="middle">AgentHub 项目总架构 —— 前端 8 岛 × Tauri IPC × Rust 核心层 × 中央仓库</text>
+
+  <rect x="54" y="58" width="852" height="86" rx="8" ry="8" fill="#f8fafc" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="80" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">React 前端（Vite + zustand）· 侧栏 9 岛</text>
+  <text x="480.0" y="99" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">Usage · Account · Skill · MCP · Model · Memory · Plugin · Setting · Architecture</text>
+  <text x="480.0" y="117" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">stores/plugins.ts 全局插件启用态（缓存 + 订阅）· agents.ts 前端注册表（身份色）· theme.css 明暗双主题</text>
+  <text x="480.0" y="134" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">停用插件：相关岛置灰 / 隐藏（读放行、写拒绝的双保险）</text>
+
+  <rect x="330" y="176" width="300" height="40" rx="8" ry="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="480.0" y="195.0" font-size="12.5" fill="#111827" font-weight="600" text-anchor="middle">Tauri 2 IPC（commands 层）</text>
+  <text x="480.0" y="209" font-size="10.5" fill="#6b7280" font-weight="400" text-anchor="middle">多单词参数收进单个 input 结构体 · snake_case</text>
+
+  <rect x="54" y="248" width="264" height="104" rx="8" ry="8" fill="#f0fdf4" stroke="#2e9e74" stroke-width="1.5"/>
+  <text x="186.0" y="271.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">plugins.rs · 插件门控</text>
+  <text x="186.0" y="289" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">plugin_state 表：首次运行按安装探测</text>
+  <text x="186.0" y="305" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">默认启用（auto）→ 手动开关（manual）</text>
+  <text x="186.0" y="321" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">enabled_adapters / enabled_ids</text>
+  <text x="186.0" y="337" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">require_enabled：读放行、写拒绝</text>
+
+  <rect x="348" y="248" width="264" height="104" rx="8" ry="8" fill="#faf5ff" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="480.0" y="271.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">store.rs · SQLite 单一事实源</text>
+  <text x="480.0" y="289" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">~/.agenthub/agenthub.db（schema v1.9）</text>
+  <text x="480.0" y="305" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">skills / skill_links / mcp_servers(enabled_json)</text>
+  <text x="480.0" y="321" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">usage_events / wb_slots / zcode_slots / plugin_state</text>
+  <text x="480.0" y="337" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">op_log 操作留痕 · v1.1→v1.9 增量迁移</text>
+
+  <rect x="642" y="248" width="264" height="104" rx="8" ry="8" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="774.0" y="271.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">adapters/ · AgentAdapter trait</text>
+  <text x="774.0" y="289" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">能力声明 caps + skills 链接策略 + MCP 格式翻译</text>
+  <text x="774.0" y="305" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">静态注册表 registry() / by_id()</text>
+  <text x="774.0" y="321" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">wb.rs（绿）· zcode.rs（蓝）· 社区扩展位</text>
+  <text x="774.0" y="337" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">fsutil.rs：软链三级降级 + 备份 + 原子写</text>
+
+  <rect x="54" y="384" width="852" height="70" rx="8" ry="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="480.0" y="405" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">共享引擎（全部注册表驱动，agent 无关）</text>
+  <text x="480.0" y="424" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">migrate.rs（skills 迁移分发）· mcp.rs（统一定义↔双格式翻译）· market.rs（市场安装）</text>
+  <text x="480.0" y="440" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">providers.rs（模型写穿）· usage.rs（用量采集）· memory.rs（记忆桥接）· account/zaccount/quota（端专属）</text>
+
+  <rect x="54" y="496" width="264" height="112" rx="8" ry="8" fill="#faf5ff" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="186.0" y="519.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">中央仓库 ~/.agenthub</text>
+  <text x="186.0" y="537" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">skills/ · MEMORY.md（全局记忆真身）</text>
+  <text x="186.0" y="553" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">agenthub.db · backups/（删除前快照兜底）</text>
+  <text x="186.0" y="569" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">keys/（额度文件）· market-cache/</text>
+  <text x="186.0" y="592" font-size="10.5" fill="#a78bfa" font-weight="600" text-anchor="middle">一份配置，多端生效</text>
+
+  <rect x="348" y="496" width="264" height="112" rx="8" ry="8" fill="#f0fdf4" stroke="#2e9e74" stroke-width="1.5"/>
+  <text x="480.0" y="519.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">~/.workbuddy（活端）</text>
+  <text x="480.0" y="537" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">skills/ 逐项链 · models.json 写穿</text>
+  <text x="480.0" y="553" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">mcp.json · user-*-personal/MEMORY.md</text>
+  <text x="480.0" y="569" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">auth 登录态（文件级复制永不读内容）</text>
+  <text x="480.0" y="592" font-size="10.5" fill="#2e9e74" font-weight="600" text-anchor="middle">云同步会重写 → diverged 巡检兜底</text>
+
+  <rect x="642" y="496" width="264" height="112" rx="8" ry="8" fill="#eff6ff" stroke="#4aa3df" stroke-width="1.5"/>
+  <text x="774.0" y="519.0" font-size="13.5" fill="#111827" font-weight="600" text-anchor="middle">~/.zcode（静端）</text>
+  <text x="774.0" y="537" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">skills/ 整目录链 · v2/config.json 直写</text>
+  <text x="774.0" y="553" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">v2/credentials.json（切号）· AGENTS.md</text>
+  <text x="774.0" y="569" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">cli/config.json（MCP enabled + 插件开关）</text>
+  <text x="774.0" y="592" font-size="10.5" fill="#4aa3df" font-weight="600" text-anchor="middle">整目录链一次建链，随中央仓库生效</text>
+
+  <line x1="480" y1="144" x2="480" y2="176" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="480" y1="216" x2="480" y2="248" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+  <line x1="186" y1="352" x2="186" y2="384" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <line x1="480" y1="352" x2="480" y2="384" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <line x1="774" y1="352" x2="774" y2="384" stroke="#ea580c" stroke-width="1.8" marker-end="url(#m-orange)"/>
+  <rect x="56" y="359.5" width="260" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="186" y="371.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">门控传播：各引擎只对已启用插件生效</text>
+  <rect x="398.0" y="359.5" width="164" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="371.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">schema 单一事实源</text>
+  <rect x="686.0" y="359.5" width="176" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="774" y="371.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">路径约定 / 探测 / 格式翻译</text>
+  <line x1="186" y1="454" x2="186" y2="496" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <line x1="480" y1="454" x2="480" y2="496" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <line x1="774" y1="454" x2="774" y2="496" stroke="#16a34a" stroke-width="1.8" marker-end="url(#m-green)"/>
+  <rect x="260.0" y="462.5" width="440" height="17" fill="#ffffff" opacity="0.95" rx="3"/>
+  <text x="480" y="474.5" font-size="11" fill="#6b7280" font-weight="400" text-anchor="middle">引擎读写中央仓库与各端文件（替换前备份 · 原子写 · 失败回滚）</text>
+</svg>
