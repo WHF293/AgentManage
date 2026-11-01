@@ -108,28 +108,37 @@ export function ArchitecturePage() {
 
   return (
     <div>
+      {/* 吸顶：标题 + 目录，滚动时始终可见 */}
       <div
-        className="flex items-center justify-between"
-        style={{ margin: '-16px -20px 12px', padding: '0 20px 10px' }}
+        style={{
+          position: 'sticky',
+          top: -16,
+          zIndex: 5,
+          background: 'var(--color-bg)',
+          margin: '-16px -20px 14px',
+          padding: '16px 20px 10px',
+        }}
       >
-        <b style={{ fontSize: 15 }}>Architecture · 架构总览</b>
-        <span className="chip off" style={{ userSelect: 'none' }}>
-          {index + 1} / {total}
-        </span>
-      </div>
-
-      {/* 目录：点击直达对应卡片 */}
-      <div className="flex flex-wrap" style={{ gap: 8, marginBottom: 14 }}>
-        {SECTIONS.map((s, i) => (
-          <span
-            key={s.id}
-            className={`chip ${i === index ? 'ok' : 'off'}`}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => go(i)}
-          >
-            {shortTitle(s.title)}
+        <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+          <b style={{ fontSize: 15 }}>Architecture · 架构总览</b>
+          <span className="chip off" style={{ userSelect: 'none' }}>
+            {index + 1} / {total}
           </span>
-        ))}
+        </div>
+
+        {/* 目录：点击直达对应卡片 */}
+        <div className="flex flex-wrap" style={{ gap: 8 }}>
+          {SECTIONS.map((s, i) => (
+            <span
+              key={s.id}
+              className={`chip ${i === index ? 'ok' : 'off'}`}
+              style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => go(i)}
+            >
+              {shortTitle(s.title)}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* 横向轮播：左按钮 · 视口 · 右按钮 */}
