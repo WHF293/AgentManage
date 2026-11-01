@@ -121,6 +121,18 @@ const shiftMonth = (ym: string, delta: number): string => {
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
+/** 某月内所有周的周一（周一落在本月才算该月的周；跨月的周归周一所在月） */
+const mondaysOfMonth = (ym: string): string[] => {
+  const [y, m] = ym.split('-').map(Number);
+  const out: string[] = [];
+  let d = mondayOf(`${ym}-01`);
+  if (Number(d.slice(5, 7)) !== m || Number(d.slice(0, 4)) !== y) d = shiftDate(d, 7);
+  while (Number(d.slice(5, 7)) === m && Number(d.slice(0, 4)) === y) {
+    out.push(d);
+    d = shiftDate(d, 7);
+  }
+  return out;
+};
 
 /** 聚合视图：某 key（日/月/年）下的合计与 agent-account-model 明细 */
 interface Bucket {
@@ -233,6 +245,7 @@ export function UsagePage() {
   const [monY, setMonY] = useState(new Date().getFullYear()); // 月历视图当前年
   const [selectedDate, setSelectedDate] = useState(todayStr()); // 点日格选中的日期
   const [weekStart, setWeekStart] = useState<string>(mondayOf(todayStr())); // 周视图当前周（周一）
+  const [weekCalYm, setWeekCalYm] = useState<string>(todayYm()); // 周历锚点月（一页中最新的月份，向前显示其与前两月）
   const [scope, setScope] = useState<Scope>(SCOPE_ALL);
   const [accounts, setAccounts] = useState<UsageAccount[]>([]);
   const [slotLabels, setSlotLabels] = useState<Record<string, string>>({});
@@ -788,47 +801,92 @@ export function UsagePage() {
             </>
           )}
 
-          {/* 周历：7 天格 */}
+          {/* 周历：三个月一页（锚点月 + 前两月），‹ › 每次翻 3 个月；点日期跳到所在周并查看当日 24h 曲线 */}
           {granularity === 'week' && (
             <>
               <div className="flex items-center" style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', flex: 1 }}>
-                  周历 · {weekStart.slice(5)} ~ {shiftDate(weekStart, 6).slice(5)} · 点击日期查看当日 24h 曲线
+                  周历 · {weekCalYm.slice(0, 4)}年 · 点击日期查看当日 24h 曲线
                 </span>
-                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekStart(shiftDate(weekStart, -7))}>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekCalYm(shiftMonth(weekCalYm, -3))}>
                   ‹
                 </button>
                 <span className="chip off" style={{ fontFamily: 'Consolas, monospace', fontSize: 11, padding: '3px 10px' }}>
-                  {weekStart.slice(5)} ~ {shiftDate(weekStart, 6).slice(5)}
+                  {[0, -1, -2].map((k) => shiftMonth(weekCalYm, k)).map((ym) => ym.slice(5)).join(' / ')}
                 </span>
-                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekStart(shiftDate(weekStart, 7))}>
+                <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => setWeekCalYm(shiftMonth(weekCalYm, 3))}>
                   ›
                 </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
-                {['一', '二', '三', '四', '五', '六', '日'].map((w, i) => {
-                  const date = shiftDate(weekStart, i);
-                  const b = filtered.byDay.get(date);
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {[0, -1, -2].map((k) => shiftMonth(weekCalYm, k)).map((ym) => {
+                  const [cy, cm] = ym.split('-').map(Number);
                   return (
-                    <div
-                      key={date}
-                      className="hover-zoom"
-                      title={detailText(b, scope)}
-                      onClick={() => setSelectedDate(date)}
-                      style={{
-                        minHeight: 72,
-                        borderRadius: 10,
-                        padding: '6px 8px',
-                        cursor: 'pointer',
-                        background: heatColor(b?.tokens ?? 0, maxOfDay),
-                        border: date === selectedDate ? '1.5px solid var(--color-primary-strong)' : '1px solid var(--color-border)',
-                        color: b && b.tokens / maxOfDay > 0.35 ? '#fff' : 'var(--color-text-2)',
-                      }}
-                    >
-                      <div style={{ fontSize: 11, fontWeight: 700 }}>周{w} · {date.slice(5)}</div>
-                      <div style={{ fontSize: 11, fontFamily: 'Consolas, monospace', marginTop: 4 }}>
-                        {b ? fmtTok(b.tokens) : '—'}
+                    <div key={ym} className="card" style={{ padding: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-1)', marginBottom: 8 }}>
+                        {cy}年{cm}月
                       </div>
+                      {mondaysOfMonth(ym).map((mon) => {
+                        const days = Array.from({ length: 7 }, (_, i) => shiftDate(mon, i));
+                        const weekTok = days.reduce((s, d) => s + (filtered.byDay.get(d)?.tokens ?? 0), 0);
+                        const isCur = mon === weekStart;
+                        return (
+                          <div key={mon} style={{ marginBottom: 8 }}>
+                            <div className="flex items-center" style={{ gap: 6, marginBottom: 3 }}>
+                              <span
+                                style={{
+                                  fontSize: 10, fontFamily: 'Consolas, monospace', flex: 1,
+                                  color: isCur ? 'var(--color-primary-strong)' : 'var(--color-text-3)',
+                                  fontWeight: isCur ? 700 : 400,
+                                }}
+                              >
+                                {mon.slice(5)} ~ {shiftDate(mon, 6).slice(5)}
+                              </span>
+                              <span style={{ fontSize: 10, fontFamily: 'Consolas, monospace', color: 'var(--color-text-2)' }}>
+                                {weekTok > 0 ? fmtTok(weekTok) : '—'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                              {days.map((date) => {
+                                const b = filtered.byDay.get(date);
+                                const inMonth = date.slice(0, 7) === ym;
+                                return (
+                                  <div
+                                    key={date}
+                                    className="hover-zoom"
+                                    title={detailText(b, scope)}
+                                    onClick={() => {
+                                      setWeekStart(mon);
+                                      setSelectedDate(date);
+                                    }}
+                                    style={{
+                                      height: 30,
+                                      borderRadius: 6,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: 10.5,
+                                      fontWeight: 700,
+                                      background: heatColor(b?.tokens ?? 0, maxOfDay),
+                                      border:
+                                        date === selectedDate
+                                          ? '1.5px solid var(--color-primary-strong)'
+                                          : isCur
+                                            ? '1px solid color-mix(in srgb, var(--color-primary) 55%, transparent)'
+                                            : '1px solid var(--color-border)',
+                                      opacity: inMonth ? 1 : 0.4,
+                                      color: b && b.tokens / maxOfDay > 0.35 ? '#fff' : inMonth ? 'var(--color-text-2)' : 'var(--color-text-3)',
+                                    }}
+                                  >
+                                    {Number(date.slice(8))}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
