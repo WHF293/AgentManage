@@ -22,6 +22,11 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && ['=', '-', '0', '+'].includes(e.key)) e.preventDefault();
 });
 
+// 屏蔽 WebView 原生右键菜单（返回/刷新/另存为/打印…）；开发模式保留便于调试
+if (!import.meta.env.DEV) {
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
