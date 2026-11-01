@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import overallArch from '../assets/arch/overall.svg';
 import pluginArch from '../assets/arch/plugin.svg';
 import skillsArch from '../assets/arch/skills.svg';
@@ -60,78 +60,132 @@ const SECTIONS: ArchSection[] = [
   },
 ];
 
-/** 侧栏目录（锚点跳转） */
-function Toc({ sections, activeId }: { sections: ArchSection[]; activeId: string }) {
+const shortTitle = (t: string) => t.replace(' 架构', '').replace('（可插拔适配器）', '').replace('（插件体系）', '');
+
+/** 左右翻页圆钮 */
+function NavButton({
+  dir,
+  onClick,
+  disabled,
+}: {
+  dir: 'prev' | 'next';
+  onClick: () => void;
+  disabled: boolean;
+}) {
   return (
-    <div className="flex flex-wrap" style={{ gap: 8, marginBottom: 16 }}>
-      {sections.map((s) => (
-        <span
-          key={s.id}
-          className={`chip ${activeId === s.id ? 'ok' : 'off'}`}
-          style={{ cursor: 'pointer', userSelect: 'none' }}
-          onClick={() =>
-            document.getElementById(`arch-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          }
-        >
-          {s.title.replace(' 架构', '').replace('（可插拔适配器）', '').replace('（插件体系）', '')}
-        </span>
-      ))}
-    </div>
+    <button
+      className="btn gh"
+      aria-label={dir === 'prev' ? '上一张' : '下一张'}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: '50%',
+        fontSize: 17,
+        padding: 0,
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.35 : 1,
+      }}
+    >
+      {dir === 'prev' ? '‹' : '›'}
+    </button>
   );
 }
 
-/** Architecture 岛 —— 全部架构图集中展示（替代原各页右下角「?」固钉） */
+/** Architecture 岛 —— 架构图横向轮播（不自动播放；目录点击直达，左右按钮翻页） */
 export function ArchitecturePage() {
-  const [activeId, setActiveId] = useState('overall');
+  const [index, setIndex] = useState(0);
+  const total = SECTIONS.length;
+  const cur = SECTIONS[index];
+
+  const go = useCallback((i: number) => {
+    setIndex(Math.max(0, Math.min(total - 1, i)));
+  }, [total]);
+
   return (
     <div>
       <div
         className="flex items-center justify-between"
-        style={{ position: 'sticky', top: -16, zIndex: 5, background: 'var(--color-bg)', margin: '-16px -20px 12px', padding: '16px 20px 10px' }}
+        style={{ margin: '-16px -20px 12px', padding: '0 20px 10px' }}
       >
         <b style={{ fontSize: 15 }}>Architecture · 架构总览</b>
+        <span className="chip off" style={{ userSelect: 'none' }}>
+          {index + 1} / {total}
+        </span>
       </div>
 
-      <Toc sections={SECTIONS} activeId={activeId} />
-
-      {SECTIONS.map((s) => (
-        <div
-          key={s.id}
-          id={`arch-${s.id}`}
-          className="card"
-          style={{ padding: 18, marginBottom: 18 }}
-        >
-          <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
-            <b style={{ fontSize: 14 }}>{s.title}</b>
-            <span
-              className="chip off"
-              style={{ cursor: 'pointer' }}
-              onClick={() =>
-                document.getElementById(`arch-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }
-            >
-              ⌃ 回到目录
-            </span>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--color-text-2)', lineHeight: 1.7, marginBottom: 12 }}>
-            {s.desc}
-          </div>
-          <div
-            className="card"
-            style={{ padding: 0, overflow: 'hidden', background: '#ffffff' }}
+      {/* 目录：点击直达对应卡片 */}
+      <div className="flex flex-wrap" style={{ gap: 8, marginBottom: 14 }}>
+        {SECTIONS.map((s, i) => (
+          <span
+            key={s.id}
+            className={`chip ${i === index ? 'ok' : 'off'}`}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => go(i)}
           >
-            <img
-              src={s.img}
-              alt={s.title}
-              style={{ width: '100%', display: 'block' }}
-              onMouseEnter={() => setActiveId(s.id)}
-            />
+            {shortTitle(s.title)}
+          </span>
+        ))}
+      </div>
+
+      {/* 横向轮播：左按钮 · 视口 · 右按钮 */}
+      <div className="flex items-stretch" style={{ gap: 10 }}>
+        <div className="flex items-center">
+          <NavButton dir="prev" onClick={() => go(index - 1)} disabled={index === 0} />
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          {/* 轨道：translateX 切换，无自动播放 */}
+          <div
+            style={{
+              display: 'flex',
+              width: '100%',
+              transform: `translateX(-${index * 100}%)`,
+              transition: 'transform .35s ease',
+            }}
+          >
+            {SECTIONS.map((s) => (
+              <div key={s.id} style={{ flex: '0 0 100%', minWidth: 0, padding: '0 2px' }}>
+                <div className="card" style={{ padding: 18 }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+                    <b style={{ fontSize: 14 }}>{s.title}</b>
+                    <span className="chip off" style={{ userSelect: 'none' }}>
+                      {shortTitle(s.title)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: 'var(--color-text-2)',
+                      lineHeight: 1.7,
+                      marginBottom: 12,
+                    }}
+                  >
+                    {s.desc}
+                  </div>
+                  <div
+                    className="card"
+                    style={{ padding: 0, overflow: 'hidden', background: '#ffffff' }}
+                  >
+                    <img src={s.img} alt={s.title} style={{ width: '100%', display: 'block' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
 
-      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 4 }}>
-        · 架构图源文件在 src/assets/arch/*.svg，随代码一同维护 · 社区适配器接入指南见 Plugin 架构一节与 AGENTS.md
+        <div className="flex items-center">
+          <NavButton dir="next" onClick={() => go(index + 1)} disabled={index === total - 1} />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 10, textAlign: 'center' }}>
+        当前：{cur.title} · 架构图源文件在 src/assets/arch/*.svg，随代码一同维护 · 社区适配器接入指南见 Plugin 架构与 AGENTS.md
       </div>
     </div>
   );
