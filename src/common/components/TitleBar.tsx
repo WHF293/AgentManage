@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { useDesktopChrome } from '../useDesktopChrome';
+import { useNavStore } from '../../stores/nav';
 import { useThemeStore } from '../../stores/theme';
 import { toast } from '../../stores/ui';
 import { updateCheck, updateInstall, type UpdateCheckInfo } from '../../api';
@@ -152,6 +153,17 @@ export function TitleBar() {
             : updState === 'downloading'
               ? `更新 ${dlPercent}%`
               : `v${ver || '…'}`}
+        </button>
+        {/* Architecture：从侧栏移入顶栏，只显示 icon（原侧栏第 9 岛） */}
+        <button
+          type="button"
+          aria-label="Architecture"
+          title="Architecture · 项目架构总览"
+          className="winbtn"
+          style={{ fontSize: 12, lineHeight: 1 }}
+          onClick={() => useNavStore.getState().setActive('architecture')}
+        >
+          ⬡
         </button>
         <button
           type="button"

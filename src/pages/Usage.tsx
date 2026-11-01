@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { agentColor as agentColorOf } from '../agents';
 import * as echarts from 'echarts/core';
 import {
   GridComponent,
@@ -48,15 +49,25 @@ const matchScope = (agent: string, account: string, s: Scope): boolean =>
 const scopeEq = (a: Scope, b: Scope): boolean => a.agent === b.agent && a.account === b.account;
 
 const AGENT_LABEL: Record<string, string> = { zcode: 'ZCode', workbuddy: 'WorkBuddy' };
-/** 双 Agent 身份色（全局定版）：WorkBuddy = 主题绿，ZCode = 天青蓝；汇总 = 主绿 */
+/** 双 Agent 身份色：读 Plugin 岛可配置色（自定义优先，回落注册表默认）；汇总 = 主绿 */
 const agentColor = (agent: string) =>
-  agent === 'zcode' ? '#4AA3DF' : agent === 'workbuddy' ? '#2E9E74' : '#3EB489';
+  agent === 'all' ? '#3EB489' : agentColorOf(agent);
 /** 模型细分图（柱/饼）显示下限：低于该消耗量的分类直接不显示 */
 const MODEL_MIN_TOKENS = 100_000;
-/** 同 Agent 多模型时的深浅变体（基调 = 身份色，深浅交错保证相邻可辨） */
+/** 同 Agent 多模型时的深浅变体：基调 = 可配置身份色，其余按明度生成深浅交错 */
+const agentShades = (id: string): string[] => {
+  const base = agentColorOf(id);
+  const n = parseInt(base.slice(1), 16);
+  const mix = (t: number, dark: boolean) => {
+    const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v + (dark ? -t * v : (255 - v) * t))));
+    const r = ch((n >> 16) & 255), g = ch((n >> 8) & 255), b = ch(n & 255);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+  };
+  return [base, mix(0.28, false), mix(0.32, true), mix(0.55, false)];
+};
 const AGENT_PALETTE: Record<string, string[]> = {
-  workbuddy: ['#2E9E74', '#6FC7A5', '#20785A', '#A3DDC6'],
-  zcode: ['#4AA3DF', '#7CBDE9', '#2E86C0', '#A9D6F2'],
+  workbuddy: agentShades('workbuddy'),
+  zcode: agentShades('zcode'),
 };
 
 const fmtTok = (n: number): string => {
@@ -592,7 +603,7 @@ export function UsagePage() {
         ).map(([v, label]) => (
           <span
             key={label}
-            className={`chip ${scopeEq(scope, v) ? (v.agent === 'zcode' ? 'zc' : 'ok') : 'off'}`}
+            className={`chip ${scopeEq(scope, v) ? (v.agent === 'zcode' ? 'zc' : v.agent === 'workbuddy' ? 'wb' : 'ok') : 'off'}`}
             style={{ cursor: 'pointer', fontSize: 11.5, padding: '4px 12px' }}
             onClick={() => setScope(v)}
           >
@@ -608,7 +619,7 @@ export function UsagePage() {
           return (
             <span
               key={`${a.agent}:${a.account}`}
-              className={`chip ${active ? (a.agent === 'zcode' ? 'zc' : 'ok') : 'off'}`}
+              className={`chip ${active ? (a.agent === 'zcode' ? 'zc' : a.agent === 'workbuddy' ? 'wb' : 'ok') : 'off'}`}
               style={{ cursor: 'pointer', fontSize: 11.5, padding: '4px 12px' }}
               title={`${AGENT_LABEL[a.agent] ?? a.agent} · ${a.calls} 次调用`}
               onClick={() => setScope(s)}

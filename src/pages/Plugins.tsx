@@ -1,18 +1,114 @@
 import { useCallback, useEffect, useState } from 'react';
 import { pluginList, pluginToggle, type PluginInfo } from '../api';
 import { refreshPlugins } from '../stores/plugins';
-import { agentMeta } from '../agents';
+import { agentMeta, getConfiguredColor, setAgentColor } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
+import { toast } from '../stores/ui';
+
+/** 预设色板：与 UI 主题协调的一组身份色 */
+const PRESET_COLORS = [
+  '#2E9E74', '#4CC79C', '#4AA3DF', '#5B8DEF', '#8B5CF6',
+  '#C05FD9', '#E8698D', '#D96459', '#D99A2B', '#5FB861',
+  '#3BB0C9', '#6B7FDB',
+];
+
+/** Agent 主题色设置弹窗：预设色板 + 自定义取色器 + 恢复默认，保存后全局立即生效 */
+function ColorDialog({
+  agentId,
+  agentName,
+  onClose,
+}: {
+  agentId: string;
+  agentName: string;
+  onClose: () => void;
+}) {
+  const meta = agentMeta(agentId);
+  const configured = getConfiguredColor(agentId);
+  const [sel, setSel] = useState<string>(configured ?? meta.defaultColor ?? '#8CA096');
+
+  const commit = (color: string | null) => {
+    setAgentColor(agentId, color);
+    toast(`${agentName} 主题色已更新（全局立即生效）`);
+    onClose();
+  };
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 200,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={onClose}
+    >
+      <div className="card" style={{ width: 420, cursor: 'default', padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center" style={{ gap: 9 }}>
+          <span
+            style={{ width: 14, height: 14, borderRadius: 999, background: sel, flex: 'none', boxShadow: '0 0 0 3px color-mix(in srgb, currentColor 8%, transparent)' }}
+          />
+          <b style={{ fontSize: 14 }}>{agentName} · 主题色</b>
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--color-text-3)', marginTop: 5 }}>
+          该颜色将全局生效：开关、chip、卡片高亮、用量图表、主按钮等所有身份色位置
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-2)', margin: '14px 0 8px' }}>预设色板</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+          {PRESET_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              title={c}
+              onClick={() => setSel(c)}
+              style={{
+                width: '100%', aspectRatio: '1', borderRadius: 9, border: sel === c ? '2.5px solid var(--color-text-1)' : '2.5px solid transparent',
+                background: c, cursor: 'pointer', padding: 0, outline: sel === c ? '2px solid var(--color-surface)' : undefined,
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center" style={{ gap: 10, marginTop: 14 }}>
+          <label
+            className="flex items-center"
+            style={{ gap: 8, fontSize: 11.5, fontWeight: 700, color: 'var(--color-text-2)', cursor: 'pointer' }}
+          >
+            自定义
+            <input
+              type="color"
+              value={sel}
+              onChange={(e) => setSel(e.target.value)}
+              style={{ width: 34, height: 26, border: '1px solid var(--color-border)', borderRadius: 7, cursor: 'pointer', padding: 0, background: 'none' }}
+            />
+          </label>
+          <span style={{ fontSize: 11, color: 'var(--color-text-3)', fontFamily: 'Consolas, monospace' }}>{sel.toUpperCase()}</span>
+        </div>
+
+        <div className="flex items-center" style={{ gap: 8, marginTop: 18 }}>
+          {configured && (
+            <button className="btn gh" onClick={() => commit(null)}>
+              ↺ 恢复默认
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
+          <button className="btn gh" onClick={onClose}>取消</button>
+          <button className="btn p" onClick={() => commit(sel)}>保存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** 单个适配器插件卡片 */
 function PluginCard({
   p,
   onToggle,
   toggling,
+  onColor,
 }: {
   p: PluginInfo;
   onToggle: (agent: string, enabled: boolean) => void;
   toggling: string | null;
+  onColor: (agent: string) => void;
 }) {
   const meta = agentMeta(p.agent);
   return (
@@ -28,7 +124,18 @@ function PluginCard({
           <div className="nm flex items-center" style={{ gap: 7 }}>
             {meta.accentVar && (
               <span
-                style={{ width: 8, height: 8, borderRadius: 999, background: meta.accentVar, flex: 'none' }}
+                title="点击设置主题色（全局生效）"
+                style={{
+                  width: 9, height: 9, borderRadius: 999, background: meta.accentVar, flex: 'none',
+                  cursor: 'pointer', boxShadow: '0 0 0 2px color-mix(in srgb, currentColor 10%, transparent)',
+                  transition: 'transform .15s',
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onColor(p.agent);
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.35)')}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
               />
             )}
             {p.display_name}
@@ -62,6 +169,7 @@ export function PluginsPage() {
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [colorDlg, setColorDlg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -140,9 +248,17 @@ export function PluginsPage() {
       ) : (
         <div className="item-grid">
           {items.map((p) => (
-            <PluginCard key={p.agent} p={p} onToggle={toggle} toggling={toggling} />
+            <PluginCard key={p.agent} p={p} onToggle={toggle} toggling={toggling} onColor={setColorDlg} />
           ))}
         </div>
+      )}
+
+      {colorDlg && (
+        <ColorDialog
+          agentId={colorDlg}
+          agentName={agentMeta(colorDlg).name}
+          onClose={() => setColorDlg(null)}
+        />
       )}
 
       <div className="card" style={{ padding: 14, marginTop: 12 }}>
@@ -155,6 +271,8 @@ export function PluginsPage() {
           <br />
           · 开关状态持久化保存（~/.agenthub/agenthub.db 的 plugin_state 表），后续打开优先读取用户配置，不会自动变更。
           <br />· 停用插件不影响历史数据：Usage 岛保留其已采集的用量，重新启用后恢复增量采集与分发。
+          <br />· 点 agent 名旁的<b>色点</b>可自定义该 agent 的主题色（预设色板 / 自定义取色器），
+          全局生效并持久化；新 agent 注册即有默认身份色。
         </div>
       </div>
     </div>

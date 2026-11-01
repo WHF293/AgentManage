@@ -182,6 +182,20 @@ impl Store {
                  );",
             )
             .map_err(|e| format!("wb_checkins/wb_credit_balance 建表失败: {e}"))?;
+            // v2.0：WB 跨账号会话复制关联组（sessions.rs P1；P2 增量同步在此基础上扩展）
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS wb_session_links (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   group_key TEXT NOT NULL,
+                   source_session_id TEXT NOT NULL,
+                   source_uid TEXT NOT NULL DEFAULT '',
+                   target_session_id TEXT NOT NULL,
+                   target_uid TEXT NOT NULL DEFAULT '',
+                   status TEXT NOT NULL DEFAULT 'copied',
+                   created_at TEXT
+                 );",
+            )
+            .map_err(|e| format!("wb_session_links 建表失败: {e}"))?;
             // 内置双市场（WB 市场为占位：接口探测未果前降级本地扫描）
             conn.execute(
                 "INSERT OR IGNORE INTO skill_sources(id, name, type, url, enabled) VALUES

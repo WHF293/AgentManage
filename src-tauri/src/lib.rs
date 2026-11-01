@@ -11,6 +11,7 @@ pub mod modelfetch;
 pub mod plugins;
 pub mod providers;
 pub mod quota;
+pub mod sessions;
 pub mod store;
 pub mod update;
 pub mod usage;
@@ -67,6 +68,31 @@ pub fn run() {
                     let _ = checkin::auto_checkin_all(&s2);
                 }
             });
+
+            // DPI 自适应钳制：配置里的 width/height 是逻辑像素，乘以系统缩放系数后
+            // 若超出显示器物理尺寸（如 2K 屏 175% 缩放 → 2800×1925 > 2560×1600），
+            // Windows 会把窗口钳制到屏幕内，显得比设定小；此时直接最大化启动，
+            // 保证小屏高分屏上也能获得满屏可用面积（普通缩放屏幕仍按配置尺寸居中）。
+            if let Some(window) = app.get_webview_window("main") {
+                let (want_w, want_h) = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|w| w.label == "main")
+                    .map(|w| (w.width, w.height))
+                    .unwrap_or((1600.0, 1100.0));
+                if let Ok(Some(monitor)) = window.current_monitor() {
+                    let sf = monitor.scale_factor();
+                    let want = tauri::PhysicalSize::new(
+                        (want_w * sf).round() as u32,
+                        (want_h * sf).round() as u32,
+                    );
+                    if want.width > monitor.size().width || want.height > monitor.size().height {
+                        let _ = window.maximize();
+                    }
+                }
+            }
 
             // 托盘：打开面板 / 退出；关闭行为 = 关到托盘（见 on_window_event）
             let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
@@ -144,6 +170,8 @@ pub fn run() {
             quota::wb_credit_by_account,
             quota::wb_credit_set_total,
             quota::wb_credit_set_balance,
+            sessions::wb_session_list,
+            sessions::wb_session_copy,
             checkin::wb_checkin_status,
             checkin::wb_checkin_claim,
             checkin::wb_checkin_auto_get,

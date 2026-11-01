@@ -148,6 +148,42 @@ fn main() {
         }
         return;
     }
+    // 无头模式：agenthub.exe --wb-sessions  列出当前账号会话（验证 sessions.rs 会话列出）
+    if args.iter().any(|a| a == "--wb-sessions") {
+        let store = agenthub_lib::store::Store::open().expect("初始化 ~/.agenthub 失败");
+        let o = agenthub_lib::account::overview(&store).expect("wb overview 失败");
+        let uid = o.current.uid.clone();
+        let list = agenthub_lib::sessions::list_sessions(&store, &uid).expect("会话列出失败");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "uid": uid,
+                "count": list.len(),
+                "sessions": list,
+            }))
+            .expect("serialize")
+        );
+        return;
+    }
+    // 无头模式：agenthub.exe --wb-copy-test <session-id> <target-uid> [target-uid2 ...]
+    // 会话复制沙盒演练（配合 USERPROFILE 重定向到临时目录，绝不触碰真实 WB 数据），支持多目标
+    if let Some(pos) = args.iter().position(|a| a == "--wb-copy-test") {
+        let sid = args.get(pos + 1).expect("缺 session-id").clone();
+        let tuids: Vec<String> = args[pos + 2..]
+            .iter()
+            .filter(|a| !a.starts_with("--"))
+            .cloned()
+            .collect();
+        assert!(!tuids.is_empty(), "缺 target-uid");
+        let store = agenthub_lib::store::Store::open().expect("初始化 ~/.agenthub 失败");
+        let backup = agenthub_lib::store::backups_dir().join("session-test");
+        for tuid in &tuids {
+            let results = agenthub_lib::sessions::copy_sessions(&store, &[sid.clone()], tuid, &backup);
+            println!("== target {tuid} ==");
+            println!("{}", serde_json::to_string_pretty(&results).expect("serialize"));
+        }
+        return;
+    }
     // 无头模式：agenthub.exe --unify-memory  全局记忆统一：真身 ~/.agenthub/MEMORY.md + 双端建链
     if args.iter().any(|a| a == "--unify-memory") {
         let store = agenthub_lib::store::Store::open().expect("初始化 ~/.agenthub 失败");

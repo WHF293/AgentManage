@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from '@tauri-apps/plugin-autostart';
 import { invoke } from '@tauri-apps/api/core';
 import { recentOpLog, updateProxyGet, updateProxySet, type OpLogRow } from '../api';
+import { getDefaultPage, setDefaultPage, type DefaultPage } from '../stores/nav';
 import { PageHeader } from '../common/components/PageHeader';
 import { useThemeStore, type ThemeMode } from '../stores/theme';
 import { toast } from '../stores/ui';
@@ -16,6 +17,7 @@ export function SettingsPage() {
     () => localStorage.getItem(CLOSE_TO_TRAY_KEY) !== '0',
   );
   const [ops, setOps] = useState<OpLogRow[]>([]);
+  const [defaultPage, setDefaultPageState] = useState<DefaultPage>(() => getDefaultPage());
   const [proxyUrl, setProxyUrl] = useState('');
   const [proxySaved, setProxySaved] = useState('');
   const [savingProxy, setSavingProxy] = useState(false);
@@ -101,6 +103,35 @@ export function SettingsPage() {
               className={`chip ${mode === m ? 'ok' : 'off'}`}
               style={{ cursor: 'pointer' }}
               onClick={() => setMode(m)}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        <div className="li">
+          <div className="ic">⌂</div>
+          <div className="grow">
+            <div className="nm">默认打开页面</div>
+            <div className="ds">
+              启动 AgentHub 时默认显示的岛（例外：首次安装默认打开顶栏 ❔「使用说明」页，方便快速上手）
+            </div>
+          </div>
+          {(
+            [
+              ['dashboard', 'Usage 用量'],
+              ['accounts', 'Account 账号'],
+            ] as [DefaultPage, string][]
+          ).map(([v, label]) => (
+            <span
+              key={v}
+              className={`chip ${defaultPage === v ? 'ok' : 'off'}`}
+              style={{ cursor: 'pointer' }}
+              title={`下次启动默认打开 ${label}`}
+              onClick={() => {
+                setDefaultPageState(v);
+                setDefaultPage(v);
+                toast(`已设置：下次启动默认打开 ${label}`);
+              }}
             >
               {label}
             </span>

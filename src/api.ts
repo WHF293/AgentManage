@@ -283,12 +283,60 @@ export interface SwitchReport {
   ok: boolean;
   steps: string[];
   error: string | null;
+  /** 勾选「复制会话」时的逐会话结果（复制失败不阻塞切号） */
+  sessions?: SessionCopyResult[];
+}
+
+/** WB 会话（当前账号，切号复制选择用） */
+export interface WbSessionInfo {
+  id: string;
+  title: string;
+  custom_title: string | null;
+  cwd: string;
+  project: string;
+  status: string;
+  model: string | null;
+  updated_at: number;
+  jsonl_ok: boolean;
+  claw: boolean;
+  linked: boolean;
+}
+
+export interface SessionCopyResult {
+  source_id: string;
+  new_id: string;
+  title: string;
+  /** copied / skipped / failed */
+  status: string;
+  detail: string;
 }
 
 export const wbOverview = () => invoke<WbOverview>('wb_overview');
 export const wbSaveSlot = (label: string) => invoke<WbSlot>('wb_save_slot', { label });
-export const wbSwitch = (slotId: string, confirmKill: boolean) =>
-  invoke<SwitchReport>('wb_switch', { input: { slot_id: slotId, confirm_kill: confirmKill } });
+export const wbSwitch = (slotId: string, confirmKill: boolean, copySessionIds: string[] = []) =>
+  invoke<SwitchReport>('wb_switch', {
+    input: { slot_id: slotId, confirm_kill: confirmKill, copy_session_ids: copySessionIds },
+  });
+export const wbSessionList = (uid: string) => invoke<WbSessionInfo[]>('wb_session_list', { uid });
+
+/** 独立复制：一次把会话复制给多个 WB 账号 */
+export interface TargetCopyGroup {
+  target_uid: string;
+  results: SessionCopyResult[];
+}
+export interface SessionCopyReport {
+  ok: boolean;
+  /** WB 运行中且未勾选强杀 → 前端显示勾选项后重试 */
+  need_kill: boolean;
+  killed: boolean;
+  restarted: boolean;
+  targets: TargetCopyGroup[];
+  error: string | null;
+}
+export const wbSessionCopy = (sessionIds: string[], targetUids: string[], confirmKill: boolean) =>
+  invoke<SessionCopyReport>('wb_session_copy', {
+    input: { session_ids: sessionIds, target_uids: targetUids, confirm_kill: confirmKill },
+  });
 export const wbImportLegacy = () => invoke<number>('wb_import_legacy');
 export const wbDeleteSlot = (slotId: string) => invoke<void>('wb_delete_slot', { slot: slotId });
 export const wbRenameSlot = (slotId: string, label: string) =>

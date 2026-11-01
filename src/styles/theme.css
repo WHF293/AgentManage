@@ -107,10 +107,15 @@ body {
   background: var(--color-surface2);
   color: var(--color-text-3);
 }
-/* ZCode 身份 chip（激活/正常态）：蓝；WorkBuddy 用默认 .chip.ok 绿 */
+/* ZCode 身份 chip（激活/正常态）：蓝 */
 .chip.zc {
   background: color-mix(in srgb, var(--color-agent-zcode) 14%, transparent);
   color: var(--color-agent-zcode);
+}
+/* WorkBuddy 身份 chip：跟随可配置的 --color-agent-wb（Plugin 岛可自定义） */
+.chip.wb {
+  background: color-mix(in srgb, var(--color-agent-wb) 14%, transparent);
+  color: var(--color-agent-wb);
 }
 .btn {
   display: inline-flex;
@@ -127,6 +132,16 @@ body {
 }
 .btn.p {
   background: var(--color-primary);
+  color: #fff;
+}
+/* ZCode 身份主按钮（Account 岛 ZCode 分组用；身份色可在 Plugin 岛自定义） */
+.btn.zcp {
+  background: var(--color-agent-zcode);
+  color: #fff;
+}
+/* WorkBuddy 身份主按钮（Account 岛 WB 分组用） */
+.btn.wbp {
+  background: var(--color-agent-wb);
   color: #fff;
 }
 .btn.gh {
@@ -441,6 +456,10 @@ body {
 .sw.on {
   background: var(--color-primary);
 }
+/* WorkBuddy 身份开关（Plugin 岛等；inline 覆盖之外的兜底） */
+.sw.wb.on {
+  background: var(--color-agent-wb);
+}
 /* ZCode 身份开关（on 态蓝）：与 WorkBuddy 开关的绿区分 */
 .sw.zc.on {
   background: var(--color-agent-zcode);
@@ -450,6 +469,25 @@ body {
 }
 .sw.small {
   transform: scale(0.85);
+}
+
+/* 会话复制弹窗的勾选框（sessions 切号复制 P1） */
+.cbx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 5px;
+  border: 1.5px solid var(--color-text-3);
+  flex: none;
+  margin-top: 2px;
+  font-size: 10px;
+  color: #fff;
+}
+.cbx.on {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* ─── 自绘窗口外壳 ─── */

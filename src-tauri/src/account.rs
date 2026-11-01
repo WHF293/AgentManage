@@ -33,7 +33,8 @@ pub struct AccountMeta {
     pub nickname: String,
 }
 
-fn parse_meta(path: &Path) -> AccountMeta {
+/// auth/槽位文件账号元数据解析（只取 uid/uin/nickname，token 永不读取 —— 安全红线）
+pub(crate) fn parse_meta(path: &Path) -> AccountMeta {
     let mut meta = AccountMeta::default();
     let Some(bytes) = fsutil::read_opt(path) else {
         return meta;
@@ -187,10 +188,13 @@ pub struct SwitchReport {
     /// 各步骤留痕（UI 流程条）
     pub steps: Vec<String>,
     pub error: Option<String>,
+    /// 会话复制结果（勾选「复制会话」时；复制失败不阻塞切号）
+    #[serde(default)]
+    pub sessions: Vec<crate::sessions::SessionCopyResult>,
 }
 
-/// 切换到指定槽位：检测进程 → 备份 → 恢复 → 校验 → 启动，失败全程回滚
-pub fn switch_account(store: &Store, slot_id: &str) -> Res<SwitchReport> {
+/// 切换到指定槽位：检测进程 → 备份 → 恢复 → 校验 →（复制会话）→ 启动，失败全程回滚
+pub fn switch_account(store: &Store, slot_id: &str, copy_ids: &[String]) -> Res<SwitchReport> {
     let mut report = SwitchReport::default();
     let run = |report: &mut SwitchReport| -> Res<()> {
         // 1) 进程检测：绝不静默强杀
@@ -241,6 +245,32 @@ pub fn switch_account(store: &Store, slot_id: &str) -> Res<SwitchReport> {
         report
             .steps
             .push(format!("JSON 校验 ✓（uid {}…）", &meta.uid[..meta.uid.len().min(8)]));
+
+        // 4.5) 复制会话到目标账号（可选；WB 关闭窗口内执行，失败不阻塞切号）
+        if !copy_ids.is_empty() {
+            let source_uid = parse_meta(&backup_file).uid;
+            if source_uid == meta.uid {
+                report
+                    .steps
+                    .push("复制会话：目标账号与当前账号相同，跳过".into());
+            } else {
+                let sess_backup = store::backups_dir().join(format!("session-{}", fsutil::now_stamp()));
+                if let Err(e) = crate::sessions::backup_db(&sess_backup) {
+                    report.steps.push(format!("复制会话：workbuddy.db 备份失败（{e}），已跳过复制"));
+                } else {
+                    let results =
+                        crate::sessions::copy_sessions(store, copy_ids, &meta.uid, &sess_backup);
+                    let ok = results.iter().filter(|r| r.status == "copied").count();
+                    let skip = results.iter().filter(|r| r.status == "skipped").count();
+                    let fail = results.iter().filter(|r| r.status == "failed").count();
+                    report.sessions = results;
+                    report.steps.push(format!(
+                        "复制会话 ×{} ✓（成功 {ok} · 跳过 {skip} · 失败 {fail}）",
+                        copy_ids.len()
+                    ));
+                }
+            }
+        }
 
         // 5) 启动 WB
         if Path::new(WB_EXE).is_file() {
@@ -415,6 +445,9 @@ pub fn wb_save_slot(state: State<'_, Store>, label: String) -> Result<WbSlot, St
 pub struct SwitchInput {
     pub slot_id: String,
     pub confirm_kill: bool,
+    /// 勾选「复制会话」时随切号一起复制的源会话 id（空 = 不复制）
+    #[serde(default)]
+    pub copy_session_ids: Vec<String>,
 }
 
 #[tauri::command]
@@ -431,7 +464,7 @@ pub fn wb_switch(state: State<'_, Store>, input: SwitchInput) -> Result<SwitchRe
         kill_process()?;
         std::thread::sleep(std::time::Duration::from_millis(1500));
     }
-    switch_account(&state, &input.slot_id)
+    switch_account(&state, &input.slot_id, &input.copy_session_ids)
 }
 
 #[tauri::command]

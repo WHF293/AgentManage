@@ -13,6 +13,7 @@ import { MemoryPage } from './pages/Memory';
 import { PluginsPage } from './pages/Plugins';
 import { SettingsPage } from './pages/Settings';
 import { ArchitecturePage } from './pages/Architecture';
+import { HelpPage } from './pages/Help';
 
 function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
@@ -48,6 +49,8 @@ function CurrentPage() {
       return <SettingsPage />;
     case 'architecture':
       return <ArchitecturePage />;
+    case 'help':
+      return <HelpPage />;
   }
 }
 
@@ -77,7 +80,13 @@ export default function App() {
 
       <div className="relative z-1 flex min-h-0 flex-1">
         <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-          <div className="logo" style={{ color: 'var(--color-primary)' }}>
+          {/* 品牌区点击进入使用说明页（首装默认打开；随时可从这回到快速上手） */}
+          <div
+            className="logo"
+            style={{ color: 'var(--color-primary)', cursor: 'pointer' }}
+            title="AgentHub · 使用说明"
+            onClick={() => setActive('help')}
+          >
             <LogoMark size={20} />
             <span className="logo-text" style={{ color: 'var(--color-text-1)' }}>
               AgentHub

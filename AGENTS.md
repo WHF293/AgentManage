@@ -50,6 +50,8 @@ agenthub.exe --migrate [--link-mode symlink|junction|copy]   # M1 skills 迁移
 agenthub.exe --sync-mcp [--adopt]                            # MCP 收编 + 双端同步
 agenthub.exe --fetch-models <provider-id>                    # /v1/models 候选链
 agenthub.exe --wb-status / --wb-save-slot <label>            # 账号岛探测/存槽位
+agenthub.exe --wb-sessions                                   # 列当前账号会话（sessions.rs）
+agenthub.exe --wb-copy-test <session-id> <target-uid>...    # 会话复制演练，支持多目标（配 USERPROFILE 重定向沙盒）
 agenthub.exe --usage-collect [range]                         # 用量双源采集 + 聚合
 agenthub.exe --market-refresh                                # Skill 市场目录刷新
 agenthub.exe --bridge-test <项目路径>                        # Memory 桥接 init/sync/consolidate
