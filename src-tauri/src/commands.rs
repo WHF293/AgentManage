@@ -1,22 +1,36 @@
 //! commands —— Tauri IPC 命令层（M1/M2：状态探测、迁移、skills 总览、重建链接）。
+//!
+//! 可插拔：本文件不出现具体 agent 名 —— 状态与分发全部经 adapters::registry() +
+//! plugins 启用配置驱动；WB 专属特性（自动调用开关）显式标注 wb_auto。
 
 use std::collections::HashMap;
 
 use serde::Serialize;
 use tauri::State;
 
-use crate::adapters::{self, wb, zcode};
+use crate::adapters::{self, wb, zcode, SkillsLink};
 use crate::fsutil;
 use crate::migrate;
+use crate::plugins;
 use crate::store::{self, Store};
 
+/// 单 agent 探测状态（app_status.agents 数组元素）
 #[derive(Serialize)]
 pub struct AgentStatus {
+    pub agent: String,
+    pub display_name: String,
+    pub desc: String,
+    /// 插件启用态（plugin_state，用户配置优先）
+    pub plugin_enabled: bool,
+    /// 本机安装探测
     pub installed: bool,
+    pub caps: adapters::AgentCaps,
     pub skills_dir: String,
     pub skills_dir_is_link: bool,
     pub skills_dir_target: Option<String>,
     pub skills_count: usize,
+    /// 登录态文件探测（无此概念的端恒 false）
+    pub auth_found: bool,
 }
 
 #[derive(Serialize)]
@@ -24,42 +38,56 @@ pub struct AppStatus {
     pub hub_initialized: bool,
     pub central_skills_count: usize,
     pub link_mode: String,
-    pub workbuddy: AgentStatus,
-    pub zcode: AgentStatus,
-    pub auth_info_found: bool,
+    /// 全部已注册适配器（含停用插件，前端按 plugin_enabled 过滤展示）
+    pub agents: Vec<AgentStatus>,
 }
 
-fn agent_status(installed: bool, skills_dir: &std::path::Path) -> AgentStatus {
-    let is_link = fsutil::is_link(skills_dir);
+fn agent_status(a: &'static dyn adapters::AgentAdapter, plugin_enabled: bool) -> AgentStatus {
+    let skills_dir = if a.caps().skills { a.skills_dir() } else { std::path::PathBuf::new() };
+    let is_link = fsutil::is_link(&skills_dir);
     let skills_count = if is_link || skills_dir.is_dir() {
-        adapters::scan_skills_dir(skills_dir).len()
+        adapters::scan_skills_dir(&skills_dir).len()
     } else {
         0
     };
     AgentStatus {
-        installed,
+        agent: a.id().to_string(),
+        display_name: a.display_name().to_string(),
+        desc: a.desc().to_string(),
+        plugin_enabled,
+        installed: a.installed(),
+        caps: a.caps(),
         skills_dir: skills_dir.to_string_lossy().to_string(),
         skills_dir_is_link: is_link,
-        skills_dir_target: fsutil::link_target(skills_dir).map(|p| p.to_string_lossy().to_string()),
+        skills_dir_target: fsutil::link_target(&skills_dir).map(|p| p.to_string_lossy().to_string()),
         skills_count,
+        auth_found: a.auth_found(),
     }
 }
 
-/// 启动探测：中央仓库 / 双端安装态 / 链接策略 / 登录态文件
+/// 启动探测：中央仓库 / 各适配器安装态与插件启用态 / 链接策略
 #[tauri::command]
-pub fn app_status() -> AppStatus {
+pub fn app_status(store_state: State<'_, Store>) -> AppStatus {
     store::ensure_hub_dirs().ok();
+    let plugin_enabled = |id: &str| {
+        plugins::list(&store_state)
+            .ok()
+            .and_then(|l| l.into_iter().find(|p| p.agent == id))
+            .map(|p| p.enabled)
+            .unwrap_or(false)
+    };
     AppStatus {
         hub_initialized: store::db_path().exists(),
         central_skills_count: adapters::scan_skills_dir(&store::central_skills_dir()).len(),
         link_mode: migrate::parse_link_mode(None).as_str().to_string(),
-        workbuddy: agent_status(wb::installed(), &wb::skills_dir()),
-        zcode: agent_status(zcode::installed(), &zcode::skills_dir()),
-        auth_info_found: wb::auth_info().is_some(),
+        agents: adapters::registry()
+            .iter()
+            .map(|a| agent_status(*a, plugin_enabled(a.id())))
+            .collect(),
     }
 }
 
-/// M1 一键迁移：双端 skills 并集导入中央仓库 → WB 逐项链 → ZCode 整目录链
+/// M1 一键迁移：各启用端 skills 并集导入中央仓库 → 按各端策略建链
 #[tauri::command]
 pub fn run_skills_migration(
     store_state: State<'_, Store>,
@@ -68,7 +96,16 @@ pub fn run_skills_migration(
     migrate::migrate_skills(&store_state, mode.as_deref())
 }
 
-/// skill 每行在每端的状态：linked / diverged（实目录）/ broken（断链）/ missing
+/// skill 每行在每启用端的状态：linked / diverged（实目录）/ broken（断链）/ missing
+#[derive(Serialize)]
+pub struct SkillAgentState {
+    pub agent: String,
+    pub display_name: String,
+    pub status: String,
+    /// 该端是否处于「整目录链」模式（此时单 skill 状态恒为 linked）
+    pub whole_link: bool,
+}
+
 #[derive(Serialize)]
 pub struct SkillOverviewItem {
     pub name: String,
@@ -76,11 +113,9 @@ pub struct SkillOverviewItem {
     pub source: String,
     pub source_ref: Option<String>,
     pub enabled: bool,
-    pub wb: String,
-    pub zcode: String,
-    /// zcode 是否处于「整目录链」模式（此时单 skill 状态恒为 linked）
-    pub zcode_whole_link: bool,
-    /// WB 端「允许模型自动调用」实测（None = WB 存储未收录）
+    /// 各启用插件端的状态（数组顺序 = 注册表顺序）
+    pub agents: Vec<SkillAgentState>,
+    /// WB 端「允许模型自动调用」实测（None = WB 存储未收录；WB 专属特性）
     pub wb_auto: Option<bool>,
 }
 
@@ -89,13 +124,10 @@ pub fn skills_overview(store_state: State<'_, Store>) -> Result<Vec<SkillOvervie
     store::ensure_hub_dirs()?;
     let central = store::central_skills_dir();
     let central_list = adapters::scan_skills_dir(&central);
-    let zdir = zcode::skills_dir();
-    let zwhole = fsutil::is_link(&zdir)
-        && fsutil::link_target(&zdir)
-            .map(|t| {
-                t.to_string_lossy().to_lowercase() == central.to_string_lossy().to_lowercase()
-            })
-            .unwrap_or(false);
+    let skills_adapters = plugins::enabled_adapters(&store_state)?
+        .into_iter()
+        .filter(|a| a.caps().skills)
+        .collect::<Vec<_>>();
 
     // DB 元数据（enabled / source / source_ref）
     let (enabled_map, source_map, srcref_map) = store_state.with(|conn| {
@@ -128,35 +160,45 @@ pub fn skills_overview(store_state: State<'_, Store>) -> Result<Vec<SkillOvervie
     let wb_auto = wb_auto_map();
     for info in central_list {
         let central_skill = central.join(&info.name);
-        let wb_status = migrate::link_status_for(&wb::skills_dir().join(&info.name), &central_skill);
-        let zcode_status = if zwhole {
-            "linked".to_string()
-        } else {
-            migrate::link_status_for(&zdir.join(&info.name), &central_skill)
-        };
-        let name = info.name.clone();
+        let mut agent_states = Vec::new();
+        for a in &skills_adapters {
+            agent_states.push(SkillAgentState {
+                agent: a.id().to_string(),
+                display_name: a.display_name().to_string(),
+                status: a.skill_link_status(&info.name, &central_skill),
+                whole_link: a.skills_link() == SkillsLink::WholeDir
+                    && a.whole_link_active(&central),
+            });
+        }
         items.push(SkillOverviewItem {
-            name,
+            name: info.name.clone(),
             description: info.description.clone(),
             enabled: *enabled_map.get(&info.name).unwrap_or(&true),
             source: source_map.get(&info.name).cloned().unwrap_or_default(),
             source_ref: srcref_map.get(&info.name).cloned().flatten(),
-            wb: wb_status,
-            zcode: zcode_status,
-            zcode_whole_link: zwhole,
+            agents: agent_states,
             wb_auto: wb_auto.get(&info.name).copied(),
         });
     }
     Ok(items)
 }
 
-/// 单 skill 在单端重建链接（断链修复 / 分发）
+/// 单 skill 在单端重建链接（断链修复 / 分发）；端必须为已启用插件
 #[tauri::command]
 pub fn relink_skill(
     store_state: State<'_, Store>,
     name: String,
     agent: String,
 ) -> Result<String, String> {
+    let Some(a) = adapters::by_id(&agent) else {
+        return Err(format!("未知 agent：{agent}"));
+    };
+    if !plugins::enabled_ids(&store_state)?.iter().any(|id| id == &agent) {
+        return Err(format!("{} 插件未启用（Plugin 岛开启后可分发）", a.display_name()));
+    }
+    if !a.caps().skills {
+        return Err(format!("{} 不支持 skills 能力域", a.display_name()));
+    }
     let central = store::central_skills_dir();
     let central_skill = central.join(&name);
     if !central_skill.is_dir() {
@@ -164,21 +206,12 @@ pub fn relink_skill(
     }
     let mode = migrate::parse_link_mode(None);
     let backups = store::backups_dir();
-    let status = match agent.as_str() {
-        "workbuddy" => {
-            migrate::relink_wb_skill(&name, &central, &backups, mode)?;
-            "linked"
-        }
-        "zcode" => {
-            let action = migrate::ensure_zcode_whole_link(&central, &backups, mode)?;
-            if action.starts_with("failed") {
-                return Err(action);
-            }
-            "linked"
-        }
-        other => return Err(format!("未知 agent：{other}")),
-    };
+    let action = a.relink_skill(&name, &central, &backups, mode)?;
+    if action.starts_with("failed") {
+        return Err(action);
+    }
     // 落库 + op_log
+    let whole = a.skills_link() == SkillsLink::WholeDir;
     store_state.with(|conn| {
         let id: Option<i64> = conn
             .query_row(
@@ -188,33 +221,27 @@ pub fn relink_skill(
             )
             .ok();
         if let Some(id) = id {
-            let target = match agent.as_str() {
-                "workbuddy" => wb::skills_dir().join(&name),
-                _ => zcode::skills_dir(),
+            let target = if whole {
+                a.skills_dir().to_string_lossy().to_string()
+            } else {
+                a.skills_dir().join(&name).to_string_lossy().to_string()
             };
-            let mode_str = if agent == "zcode" {
+            let mode_str = if whole {
                 format!("whole-{}", mode.as_str())
             } else {
                 mode.as_str().to_string()
             };
-            store::upsert_skill_link(
-                conn,
-                id,
-                &agent,
-                &mode_str,
-                &target.to_string_lossy(),
-                "ok",
-            )?;
+            store::upsert_skill_link(conn, id, &agent, &mode_str, &target, "ok")?;
         }
         store::log_op(
             conn,
             "skill.relink",
             &name,
-            serde_json::json!({ "agent": agent, "status": status }),
+            serde_json::json!({ "agent": agent, "action": action }),
         );
         Ok(())
     })?;
-    Ok(status.to_string())
+    Ok("linked".to_string())
 }
 
 /// WB 端技能「允许模型自动调用」映射（skills-installed-store.json 的
@@ -456,7 +483,7 @@ fn remove_skill_ref(target: &std::path::Path, backups: &std::path::Path) -> Resu
     Ok(())
 }
 
-/// 删除 skill：双端引用移除 + 中央仓库源文件删除前自动备份 + DB 行清理
+/// 删除 skill：各启用端引用移除 + 中央仓库源文件删除前自动备份 + DB 行清理
 #[tauri::command]
 pub fn skill_delete(store_state: State<'_, Store>, name: String) -> Result<(), String> {
     let central = store::central_skills_dir();
@@ -466,17 +493,15 @@ pub fn skill_delete(store_state: State<'_, Store>, name: String) -> Result<(), S
     }
     let backups = store::backups_dir();
 
-    // WB 引用
-    remove_skill_ref(&wb::skills_dir().join(&name), &backups)?;
-
-    // ZCode 引用：整目录链模式下 ~/.zcode/skills 即中央仓库本体，随源一并消失；否则按单条引用处理
-    let zdir = zcode::skills_dir();
-    let zwhole = fsutil::is_link(&zdir)
-        && fsutil::link_target(&zdir)
-            .map(|t| t.to_string_lossy().to_lowercase() == central.to_string_lossy().to_lowercase())
-            .unwrap_or(false);
-    if !zwhole {
-        remove_skill_ref(&zdir.join(&name), &backups)?;
+    // 各启用插件端的引用（WholeDir 整链端：skills 目录即中央仓库本体，随源一并消失，跳过单条引用）
+    for a in plugins::enabled_adapters(&store_state)?
+        .into_iter()
+        .filter(|a| a.caps().skills)
+    {
+        if a.skills_link() == SkillsLink::WholeDir && a.whole_link_active(&central) {
+            continue;
+        }
+        remove_skill_ref(&a.skills_dir().join(&name), &backups)?;
     }
 
     // 中央仓库源文件 → 备份目录（删除语义，留快照兜底）

@@ -662,12 +662,20 @@ fn do_collect_all(store: &Store, app: Option<&AppHandle>) -> Res<(usize, usize)>
         .map_err(|e| e.to_string())?;
         Ok(())
     })?;
-    let z = collect_zcode(store, app)?;
-    let has_projects = crate::adapters::wb::dir().join("projects").is_dir();
-    let w = if has_projects {
-        collect_wb_projects(store, app)?
+    // 插件门控：停用的 agent 适配器不采集（历史事件保留在库，重新启用后恢复增量）
+    let enabled = crate::plugins::enabled_ids(store)?;
+    let zc_on = enabled.iter().any(|id| id == "zcode");
+    let wb_on = enabled.iter().any(|id| id == "workbuddy");
+    let z = if zc_on { collect_zcode(store, app)? } else { 0 };
+    let w = if !wb_on {
+        0
     } else {
-        collect_wb_snapshot(store)?
+        let has_projects = crate::adapters::wb::dir().join("projects").is_dir();
+        if has_projects {
+            collect_wb_projects(store, app)?
+        } else {
+            collect_wb_snapshot(store)?
+        }
     };
     backfill_wb_accounts(store)?;
     Ok((z, w))

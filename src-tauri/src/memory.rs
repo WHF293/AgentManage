@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::adapters::{agent_home, wb, zcode};
 use crate::fsutil::{self, LinkMode, Res};
-use crate::migrate::eq_path;
+use crate::adapters::eq_path;
 use crate::store::{self, Store};
 
 pub const BLOCK_START: &str = "<!-- agent-hub:start -->";

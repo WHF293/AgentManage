@@ -135,7 +135,30 @@ impl Store {
                  );",
             )
             .map_err(|e| format!("zcode_slots 建表失败: {e}"))?;
-            // v1.5：Models 岛 WB 写穿托管清单（WB models.json 中由 AgentHub 管理的条目 id ↔ provider）
+            // v1.8：MCP 统一定义的启用态改为按 agent 通用 JSON 列
+            // （{"workbuddy":true,"zcode":false,...}；NULL = 旧数据未迁移，读取时回退
+            // enabled_wb/enabled_zcode 旧列；旧列保留作回滚保险，新写入不再更新）
+            let has_enabled_json: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('mcp_servers') WHERE name = 'enabled_json'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            if has_enabled_json == 0 {
+                conn.execute_batch("ALTER TABLE mcp_servers ADD COLUMN enabled_json TEXT")
+                    .map_err(|e| format!("enabled_json 列迁移失败: {e}"))?;
+            }
+            // v1.9：可插拔适配器启用状态（首次运行自动探测，之后以用户手动配置为准）
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS plugin_state (
+                   agent TEXT PRIMARY KEY,
+                   enabled INTEGER NOT NULL,
+                   source TEXT NOT NULL DEFAULT 'manual',
+                   updated_at TEXT
+                 );",
+            )
+            .map_err(|e| format!("plugin_state 建表失败: {e}"))?;
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS wb_model_entries (
                    entry_id TEXT PRIMARY KEY,

@@ -1,32 +1,29 @@
-//! mcp —— M3 统一 MCP 引擎：单一事实源（SQLite）→ 双格式翻译写入。
+//! mcp —— 统一 MCP 引擎：单一事实源（SQLite）→ 按 agent 注册表翻译写入。
 //!
-//! 格式（方案 §2.1 / §2.2 实测）：
-//! - WB   `~/.workbuddy/mcp.json`      `{mcpServers:{name:{type,command,args,url,timeout,disabled}}}`
-//! - ZCode `~/.zcode/cli/config.json`  `{plugins…, mcp:{servers:{name:{type,command,args,enabled?}}}}`
+//! 每个启用插件的 agent 适配器（adapters::registry()，caps.mcp = true）提供：
+//! 配置文件形态（路径 + 容器）、条目启用态判定、条目生成（含类型翻译）。
+//! 引擎本身不含任何具体 agent 的格式知识 —— 新增 agent 适配器零改动接入。
 //!
 //! 纪律：写前备份 → 保留目标文件未知键 → 原子写 → serde_json 序列化保证合法。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tauri::State;
 
-use crate::adapters::{wb, zcode};
+use crate::adapters::{self, McpEntry, McpLive};
 use crate::fsutil::{self, Res};
+use crate::plugins;
 use crate::store::{self, Store};
-
-/// 两端均不支持、不写入的类型预留位。
-/// 实测定版（2026-10-31）：远程 MCP 两端都支持 —— WB 叫 streamableHttp，ZCode 叫 http，翻译层转换。
-pub const WB_ONLY_TYPES: [&str; 0] = [];
 
 // ─── 统一模型 ───
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct McpServer {
     pub name: String,
-    /// stdio | streamableHttp
+    /// stdio | streamableHttp（规范型）
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default)]
@@ -39,19 +36,29 @@ pub struct McpServer {
     pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
-    #[serde(default = "default_true")]
-    pub enabled_wb: bool,
-    #[serde(default = "default_true")]
-    pub enabled_zcode: bool,
+    /// 按 agent 的启用态（agent id → enabled；缺失键按 true 处理，与旧行为一致）
+    #[serde(default)]
+    pub enabled: HashMap<String, bool>,
 }
 
-fn default_true() -> bool {
-    true
+impl McpServer {
+    fn enabled_for(&self, agent: &str) -> bool {
+        self.enabled.get(agent).copied().unwrap_or(true)
+    }
 }
 
 // ─── DB 存取 ───
 
 fn row_to_server(row: &rusqlite::Row) -> rusqlite::Result<McpServer> {
+    let enabled_json: Option<String> = row.get(7)?;
+    let enabled = match enabled_json {
+        Some(s) => serde_json::from_str::<HashMap<String, bool>>(&s).unwrap_or_default(),
+        // 旧数据未迁移：回退 enabled_wb / enabled_zcode 旧列（v1.8 起 legacy，仅读不写）
+        None => HashMap::from([
+            ("workbuddy".to_string(), row.get::<_, i64>(8)? != 0),
+            ("zcode".to_string(), row.get::<_, i64>(9)? != 0),
+        ]),
+    };
     Ok(McpServer {
         name: row.get(0)?,
         kind: row
@@ -67,19 +74,19 @@ fn row_to_server(row: &rusqlite::Row) -> rusqlite::Result<McpServer> {
             .get::<_, Option<String>>(5)?
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default(),
-        enabled_wb: row.get::<_, i64>(6)? != 0,
-        enabled_zcode: row.get::<_, i64>(7)? != 0,
         headers: row
-            .get::<_, Option<String>>(8)?
+            .get::<_, Option<String>>(6)?
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default(),
+        enabled,
     })
 }
 
 pub fn list_servers(conn: &Connection) -> Res<Vec<McpServer>> {
     let mut stmt = conn
         .prepare(
-            "SELECT name, type, command, args_json, url, env_json, enabled_wb, enabled_zcode, headers_json
+            "SELECT name, type, command, args_json, url, env_json, headers_json,
+                    enabled_json, enabled_wb, enabled_zcode
              FROM mcp_servers ORDER BY name",
         )
         .map_err(|e| e.to_string())?;
@@ -95,13 +102,12 @@ pub fn list_servers(conn: &Connection) -> Res<Vec<McpServer>> {
 
 pub fn upsert_server(conn: &Connection, s: &McpServer) -> Res<()> {
     conn.execute(
-        "INSERT INTO mcp_servers(name, type, command, args_json, url, env_json, enabled_wb, enabled_zcode, headers_json, updated_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9, datetime('now','localtime'))
+        "INSERT INTO mcp_servers(name, type, command, args_json, url, env_json, headers_json, enabled_json, updated_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8, datetime('now','localtime'))
          ON CONFLICT(name) DO UPDATE SET
            type=excluded.type, command=excluded.command, args_json=excluded.args_json,
            url=excluded.url, env_json=excluded.env_json, headers_json=excluded.headers_json,
-           enabled_wb=excluded.enabled_wb, enabled_zcode=excluded.enabled_zcode,
-           updated_at=excluded.updated_at",
+           enabled_json=excluded.enabled_json, updated_at=excluded.updated_at",
         rusqlite::params![
             s.name,
             s.kind,
@@ -109,9 +115,8 @@ pub fn upsert_server(conn: &Connection, s: &McpServer) -> Res<()> {
             serde_json::to_string(&s.args).map_err(|e| e.to_string())?,
             s.url,
             serde_json::to_string(&s.env).map_err(|e| e.to_string())?,
-            s.enabled_wb as i64,
-            s.enabled_zcode as i64,
             serde_json::to_string(&s.headers).map_err(|e| e.to_string())?,
+            serde_json::to_string(&s.enabled).map_err(|e| e.to_string())?,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -121,6 +126,23 @@ pub fn upsert_server(conn: &Connection, s: &McpServer) -> Res<()> {
 pub fn delete_server(conn: &Connection, name: &str) -> Res<()> {
     conn.execute("DELETE FROM mcp_servers WHERE name = ?1", rusqlite::params![name])
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 单 agent 启用态切换：读行 → 改 map → 写回 enabled_json
+fn toggle_enabled(conn: &Connection, name: &str, agent: &str, enabled: bool) -> Res<()> {
+    let Some(mut s) = list_servers(conn)?
+        .into_iter()
+        .find(|s| s.name == name)
+    else {
+        return Err(format!("统一定义中无此 server：{name}"));
+    };
+    s.enabled.insert(agent.to_string(), enabled);
+    conn.execute(
+        "UPDATE mcp_servers SET enabled_json = ?2, updated_at = datetime('now','localtime') WHERE name = ?1",
+        rusqlite::params![name, serde_json::to_string(&s.enabled).map_err(|e| e.to_string())?],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -142,21 +164,17 @@ fn servers_map_of(value: &Value, container: &[&str]) -> Map<String, Value> {
     cur.as_object().cloned().unwrap_or_default()
 }
 
-/// WB mcpServers 里每个 server 的当前状态：present / disabled / missing
-fn wb_entry_status(entry: &Value) -> &'static str {
-    if entry.get("disabled").and_then(Value::as_bool) == Some(true) {
-        "disabled"
-    } else {
-        "present"
-    }
-}
+// ─── 总览（DB 定义 × 各启用端实测） ───
 
-/// ZCode mcp.servers 里每个 server 的当前状态：present / disabled / missing
-fn zc_entry_status(entry: &Value) -> &'static str {
-    match entry.get("enabled") {
-        Some(Value::Bool(false)) => "disabled",
-        _ => "present",
-    }
+/// 单 agent 维度的 server 运行态
+#[derive(Debug, Serialize)]
+pub struct McpAgentState {
+    pub agent: String,
+    pub display_name: String,
+    /// 统一定义中该端是否启用
+    pub enabled: bool,
+    /// 与目标文件实测：ok / disabled / missing / drifted / unsupported
+    pub status: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,92 +184,110 @@ pub struct McpOverviewItem {
     pub kind: String,
     pub command: Option<String>,
     pub url: Option<String>,
-    pub enabled_wb: bool,
-    pub enabled_zcode: bool,
-    /// 与目标文件实测：ok / disabled / missing / drifted（同名字段不一致）
-    pub wb_status: String,
-    pub zcode_status: String,
-    /// ZCode 不支持 HTTP 型 → 仅 WB
-    pub zcode_unsupported: bool,
+    /// 各启用插件端的实测（数组顺序 = 注册表顺序）
+    pub agents: Vec<McpAgentState>,
+}
+
+/// 单 agent 维度的漂移：只存在于该端目标文件、未纳入统一定义的名字
+#[derive(Debug, Serialize)]
+pub struct McpAgentDrift {
+    pub agent: String,
+    pub display_name: String,
+    pub only: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Default)]
 pub struct McpDrift {
-    /// 只存在于目标文件、未纳入统一定义的名字
-    pub wb_only: Vec<String>,
-    pub zcode_only: Vec<String>,
+    pub agents: Vec<McpAgentDrift>,
 }
 
-/// 总览：DB 定义 × 双端实测
+/// 已启用且具备 MCP 能力的适配器（注册表顺序）
+fn enabled_mcp_adapters(store: &Store) -> Res<Vec<&'static dyn adapters::AgentAdapter>> {
+    Ok(plugins::enabled_adapters(store)?
+        .into_iter()
+        .filter(|a| a.caps().mcp)
+        .collect())
+}
+
+/// 总览：DB 定义 × 各启用插件端实测
 pub fn overview(store: &Store) -> Res<(Vec<McpOverviewItem>, McpDrift)> {
-    let (servers, wb_map, zc_map) = store.with(|conn| {
-        let servers = list_servers(conn)?;
-        let wb_map = servers_map_of(&read_json(&wb::mcp_json())?, &["mcpServers"]);
-        let zc_map = servers_map_of(&read_json(&zcode::cli_config())?, &["mcp", "servers"]);
-        Ok((servers, wb_map, zc_map))
-    })?;
+    let adapters = enabled_mcp_adapters(store)?;
+    let servers = store.with(list_servers)?;
+    // 各端目标文件现状
+    let mut live_maps: Vec<(&'static dyn adapters::AgentAdapter, Map<String, Value>)> = Vec::new();
+    for a in adapters.iter().copied() {
+        let cfg = a.mcp_config();
+        live_maps.push((a, servers_map_of(&read_json(&cfg.path)?, cfg.container)));
+    }
 
     let mut items = Vec::new();
     for s in &servers {
-        let wb_live = wb_map.get(&s.name).map(wb_entry_status);
-        let zc_live = zc_map.get(&s.name).map(zc_entry_status);
-        let wb_status = match wb_live {
-            None => "missing",
-            Some("present") if s.enabled_wb => "ok",
-            Some("disabled") if !s.enabled_wb => "ok",
-            _ => "drifted",
-        };
-        let unsupported = WB_ONLY_TYPES.contains(&s.kind.as_str());
-        let zcode_status = if unsupported {
-            "unsupported"
-        } else {
-            match zc_live {
-                None => "missing",
-                Some("present") if s.enabled_zcode => "ok",
-                Some("disabled") if !s.enabled_zcode => "ok",
-                _ => "drifted",
-            }
-        };
+        let mut agent_states = Vec::new();
+        for (a, live) in &live_maps {
+            let enabled = s.enabled_for(a.id());
+            let unsupported = !a.supports_kind(&s.kind);
+            let status = if unsupported {
+                "unsupported".to_string()
+            } else {
+                match live.get(&s.name).map(|e| a.mcp_entry_live(e)) {
+                    None => "missing",
+                    Some(McpLive::Present) if enabled => "ok",
+                    Some(McpLive::Disabled) if !enabled => "ok",
+                    _ => "drifted",
+                }
+                .to_string()
+            };
+            agent_states.push(McpAgentState {
+                agent: a.id().to_string(),
+                display_name: a.display_name().to_string(),
+                enabled,
+                status,
+            });
+        }
         items.push(McpOverviewItem {
             name: s.name.clone(),
             kind: s.kind.clone(),
             command: s.command.clone(),
             url: s.url.clone(),
-            enabled_wb: s.enabled_wb,
-            enabled_zcode: s.enabled_zcode,
-            wb_status: wb_status.into(),
-            zcode_status: zcode_status.into(),
-            zcode_unsupported: unsupported,
+            agents: agent_states,
         });
     }
-    let drift = McpDrift {
-        wb_only: wb_map
+    let mut drift = McpDrift::default();
+    for (a, live) in &live_maps {
+        let only: Vec<String> = live
             .keys()
             .filter(|n| !servers.iter().any(|s| &s.name == *n))
             .cloned()
-            .collect(),
-        zcode_only: zc_map
-            .keys()
-            .filter(|n| !servers.iter().any(|s| &s.name == *n))
-            .cloned()
-            .collect(),
-    };
+            .collect();
+        drift.agents.push(McpAgentDrift {
+            agent: a.id().to_string(),
+            display_name: a.display_name().to_string(),
+            only,
+        });
+    }
     Ok((items, drift))
 }
 
-/// 收编：把目标文件里已有的 server 并入统一定义（首次接管 / 漂移回填）
-/// 冲突时以 WB 侧字段为准（WB 支持的格式更全）。
+/// 收编：把各端目标文件里已有的 server 并入统一定义（首次接管 / 漂移回填）。
+/// 字段冲突时按注册表顺序取先者（WorkBuddy 优先，格式最全）。
 pub fn adopt_from_targets(store: &Store, overwrite: bool) -> Res<usize> {
-    let wb_map = servers_map_of(&read_json(&wb::mcp_json())?, &["mcpServers"]);
-    let zc_map = servers_map_of(&read_json(&zcode::cli_config())?, &["mcp", "servers"]);
-    let mut names: Vec<String> = wb_map.keys().cloned().collect();
-    names.extend(zc_map.keys().cloned());
+    let adapters = enabled_mcp_adapters(store)?;
+    let mut live_maps: Vec<(&'static dyn adapters::AgentAdapter, Map<String, Value>)> = Vec::new();
+    for a in adapters.iter().copied() {
+        let cfg = a.mcp_config();
+        live_maps.push((a, servers_map_of(&read_json(&cfg.path)?, cfg.container)));
+    }
+
+    let mut names: Vec<String> = Vec::new();
+    for (_, m) in &live_maps {
+        names.extend(m.keys().cloned());
+    }
     names.sort();
     names.dedup();
 
     let mut count = 0;
     store.with(|conn| {
-        for name in names {
+        for name in &names {
             let existing = conn
                 .query_row(
                     "SELECT COUNT(*) FROM mcp_servers WHERE name = ?1",
@@ -262,64 +298,69 @@ pub fn adopt_from_targets(store: &Store, overwrite: bool) -> Res<usize> {
             if existing > 0 && !overwrite {
                 continue;
             }
-            let wb_entry = wb_map.get(&name);
-            let zc_entry = zc_map.get(&name);
-            let kind = wb_entry
-                .and_then(|e| e.get("type").and_then(Value::as_str))
-                .or_else(|| zc_entry.and_then(|e| e.get("type").and_then(Value::as_str)))
-                .unwrap_or("stdio")
-                .to_string();
-            // 远程 MCP 统一以 WB 命名为规范型（写入 ZCode 时翻译回 http）
-            let kind = if kind == "http" {
-                "streamableHttp".to_string()
-            } else {
-                kind
-            };
-            let command = wb_entry
-                .and_then(|e| e.get("command").and_then(Value::as_str))
-                .or_else(|| zc_entry.and_then(|e| e.get("command").and_then(Value::as_str)))
-                .map(String::from);
-            let args = wb_entry
-                .and_then(|e| e.get("args").cloned())
-                .or_else(|| zc_entry.and_then(|e| e.get("args").cloned()))
-                .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
-                .unwrap_or_default();
-            let url = wb_entry
-                .and_then(|e| e.get("url").and_then(Value::as_str))
-                .or_else(|| zc_entry.and_then(|e| e.get("url").and_then(Value::as_str)))
-                .map(String::from);
-            let env: BTreeMap<String, String> = wb_entry
-                .and_then(|e| e.get("env").cloned())
-                .or_else(|| zc_entry.and_then(|e| e.get("env").cloned()))
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
-            let headers: BTreeMap<String, String> = wb_entry
-                .and_then(|e| e.get("headers").cloned())
-                .or_else(|| zc_entry.and_then(|e| e.get("headers").cloned()))
-                .and_then(|v| serde_json::from_value(v).ok())
-                .unwrap_or_default();
-            let enabled_wb = match wb_entry.map(wb_entry_status) {
-                Some("disabled") => false,
-                Some(_) => true,
-                None => false,
-            };
-            let enabled_zcode = match zc_entry.map(zc_entry_status) {
-                Some("disabled") => false,
-                Some(_) => true,
-                None => false,
-            };
+            // 各字段按注册表顺序取第一个有值者
+            let mut kind: Option<String> = None;
+            let mut command: Option<String> = None;
+            let mut args: Vec<String> = Vec::new();
+            let mut url: Option<String> = None;
+            let mut env: BTreeMap<String, String> = BTreeMap::new();
+            let mut headers: BTreeMap<String, String> = BTreeMap::new();
+            let mut enabled: HashMap<String, bool> = HashMap::new();
+            for (a, m) in &live_maps {
+                let Some(entry) = m.get(name) else {
+                    // 该端没有此条目 → 视作未分发
+                    enabled.insert(a.id().to_string(), false);
+                    continue;
+                };
+                enabled.insert(a.id().to_string(), a.mcp_enabled_of(Some(entry)));
+                if kind.is_none() {
+                    kind = Some(
+                        entry
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(|k| a.canonical_kind(k))
+                            .unwrap_or_else(|| "stdio".into()),
+                    );
+                }
+                if command.is_none() {
+                    command = entry.get("command").and_then(Value::as_str).map(String::from);
+                }
+                if args.is_empty() {
+                    args = entry
+                        .get("args")
+                        .cloned()
+                        .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+                        .unwrap_or_default();
+                }
+                if url.is_none() {
+                    url = entry.get("url").and_then(Value::as_str).map(String::from);
+                }
+                if env.is_empty() {
+                    env = entry
+                        .get("env")
+                        .cloned()
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default();
+                }
+                if headers.is_empty() {
+                    headers = entry
+                        .get("headers")
+                        .cloned()
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default();
+                }
+            }
             upsert_server(
                 conn,
                 &McpServer {
                     name: name.clone(),
-                    kind,
+                    kind: kind.unwrap_or_else(|| "stdio".into()),
                     command,
                     args,
                     url,
                     env,
                     headers,
-                    enabled_wb,
-                    enabled_zcode,
+                    enabled,
                 },
             )?;
             count += 1;
@@ -335,88 +376,12 @@ pub fn adopt_from_targets(store: &Store, overwrite: bool) -> Res<usize> {
     Ok(count)
 }
 
-/// 生成 WB mcpServers 子对象：托管字段以统一定义覆盖，非托管字段（timeout 等）保留。
-/// 类型翻译：规范型 streamableHttp 原样写 WB。
-fn to_wb_entry(s: &McpServer, existing: Option<&Value>) -> Value {
-    let mut entry = existing
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    entry.insert("type".into(), json!(s.kind));
-    if let Some(cmd) = &s.command {
-        entry.insert("command".into(), json!(cmd));
-    } else {
-        entry.remove("command");
-    }
-    if !s.args.is_empty() {
-        entry.insert("args".into(), json!(s.args));
-    } else {
-        entry.remove("args");
-    }
-    if let Some(url) = &s.url {
-        entry.insert("url".into(), json!(url));
-    } else {
-        entry.remove("url");
-    }
-    if !s.env.is_empty() {
-        entry.insert("env".into(), json!(s.env));
-    } else {
-        entry.remove("env");
-    }
-    if !s.headers.is_empty() {
-        entry.insert("headers".into(), json!(s.headers));
-    } else {
-        entry.remove("headers");
-    }
-    entry.insert("disabled".into(), json!(!s.enabled_wb));
-    Value::Object(entry)
-}
-
-/// 生成 ZCode mcp.servers 子对象。类型翻译：streamableHttp → http（ZCode 命名）
-fn to_zc_entry(s: &McpServer, existing: Option<&Value>) -> Option<Value> {
-    if WB_ONLY_TYPES.contains(&s.kind.as_str()) {
-        return None;
-    }
-    let zc_type = if s.kind == "streamableHttp" {
-        "http"
-    } else {
-        s.kind.as_str()
-    };
-    let mut entry = existing
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    entry.insert("type".into(), json!(zc_type));
-    if let Some(cmd) = &s.command {
-        entry.insert("command".into(), json!(cmd));
-    } else {
-        entry.remove("command");
-    }
-    if !s.args.is_empty() {
-        entry.insert("args".into(), json!(s.args));
-    } else {
-        entry.remove("args");
-    }
-    if let Some(url) = &s.url {
-        entry.insert("url".into(), json!(url));
-    } else {
-        entry.remove("url");
-    }
-    if !s.env.is_empty() {
-        entry.insert("env".into(), json!(s.env));
-    } else {
-        entry.remove("env");
-    }
-    if !s.headers.is_empty() {
-        entry.insert("headers".into(), json!(s.headers));
-    } else {
-        entry.remove("headers");
-    }
-    entry.insert("enabled".into(), json!(s.enabled_zcode));
-    Some(Value::Object(entry))
-}
-
-fn write_json_preserving(path: &std::path::Path, backups: &std::path::Path, container: &[&str], servers: &Map<String, Value>) -> Res<()> {
+fn write_json_preserving(
+    path: &std::path::Path,
+    backups: &std::path::Path,
+    container: &[&str],
+    servers: &Map<String, Value>,
+) -> Res<()> {
     let mut root = read_json(path)?;
     if path.exists() {
         fsutil::backup_file(path, backups)?;
@@ -437,47 +402,66 @@ fn write_json_preserving(path: &std::path::Path, backups: &std::path::Path, cont
     fsutil::atomic_write(path, &bytes)
 }
 
-/// 全量同步：DB → 双端目标文件。
+/// 单 agent 同步结果
+#[derive(Debug, Serialize)]
+pub struct McpAgentSyncReport {
+    pub agent: String,
+    pub display_name: String,
+    pub written: usize,
+}
+
+/// 全量同步：DB → 各启用插件端目标文件。
 /// 写入语义：某端「启用」或「该端原本已有此条目」才写（disabled/enabled 反映状态）；
-/// 单端独有的 server 不以禁用态铺到另一端（保持「未添加」）。
-pub fn sync_all(store: &Store) -> Res<(String, String)> {
+/// 单端独有的 server 不以禁用态铺到另一端（保持「未添加」）；不支持该类型的端跳过。
+pub fn sync_all(store: &Store) -> Res<Vec<McpAgentSyncReport>> {
+    let adapters = enabled_mcp_adapters(store)?;
     let servers = store.with(list_servers)?;
     let backups = store::backups_dir();
+    let mut reports = Vec::new();
 
-    let wb_existing = servers_map_of(&read_json(&wb::mcp_json())?, &["mcpServers"]);
-    let zc_existing = servers_map_of(&read_json(&zcode::cli_config())?, &["mcp", "servers"]);
-
-    let mut wb_map = Map::new();
-    for s in &servers {
-        if s.enabled_wb || wb_existing.contains_key(&s.name) {
-            wb_map.insert(s.name.clone(), to_wb_entry(s, wb_existing.get(&s.name)));
-        }
-    }
-    let mut zc_map = Map::new();
-    for s in &servers {
-        if s.enabled_zcode || zc_existing.contains_key(&s.name) {
-            if let Some(entry) = to_zc_entry(s, zc_existing.get(&s.name)) {
-                zc_map.insert(s.name.clone(), entry);
+    for a in &adapters {
+        let cfg = a.mcp_config();
+        let existing = servers_map_of(&read_json(&cfg.path)?, cfg.container);
+        let mut out_map = Map::new();
+        for s in &servers {
+            let enabled = s.enabled_for(a.id());
+            if !enabled && !existing.contains_key(&s.name) {
+                continue;
+            }
+            let entry = McpEntry {
+                kind: s.kind.clone(),
+                command: s.command.clone(),
+                args: s.args.clone(),
+                url: s.url.clone(),
+                env: s.env.clone(),
+                headers: s.headers.clone(),
+                enabled,
+            };
+            if let Some(v) = a.to_mcp_entry(&entry, existing.get(&s.name)) {
+                out_map.insert(s.name.clone(), v);
             }
         }
+        write_json_preserving(&cfg.path, &backups, cfg.container, &out_map)?;
+        reports.push(McpAgentSyncReport {
+            agent: a.id().to_string(),
+            display_name: a.display_name().to_string(),
+            written: out_map.len(),
+        });
     }
-
-    write_json_preserving(&wb::mcp_json(), &backups, &["mcpServers"], &wb_map)?;
-    write_json_preserving(&zcode::cli_config(), &backups, &["mcp", "servers"], &zc_map)?;
 
     store.with(|conn| {
         store::log_op(
             conn,
             "mcp.sync_all",
-            "wb mcp.json + zcode cli/config.json",
-            json!({ "servers": servers.len(), "wb_written": wb_map.len(), "zcode_written": zc_map.len() }),
+            "targets",
+            json!({
+                "servers": servers.len(),
+                "per_agent": reports.iter().map(|r| json!({"agent": r.agent, "written": r.written})).collect::<Vec<_>>(),
+            }),
         );
         Ok(())
     })?;
-    Ok((
-        format!("{} servers → WB", wb_map.len()),
-        format!("{} servers → ZCode", zc_map.len()),
-    ))
+    Ok(reports)
 }
 
 /// 删除 server 并同步
@@ -491,7 +475,7 @@ pub fn remove_and_sync(store: &Store, name: &str) -> Res<()> {
     Ok(())
 }
 
-// ─── Tauri commands（M3） ───
+// ─── Tauri commands ───
 
 #[derive(Serialize)]
 pub struct McpOverviewPayload {
@@ -519,7 +503,7 @@ pub fn mcp_save(state: State<'_, Store>, server: McpServer) -> Result<(), String
             conn,
             "mcp.save",
             &server.name,
-            json!({ "kind": server.kind, "wb": server.enabled_wb, "zcode": server.enabled_zcode }),
+            json!({ "kind": server.kind, "enabled": server.enabled }),
         );
         Ok(())
     })?;
@@ -534,14 +518,11 @@ pub fn mcp_toggle(
     agent: String,
     enabled: bool,
 ) -> Result<(), String> {
+    if adapters::by_id(&agent).is_none() {
+        return Err(format!("未知 agent：{agent}"));
+    }
     state.with(|conn| {
-        let sql = match agent.as_str() {
-            "workbuddy" => "UPDATE mcp_servers SET enabled_wb = ?2, updated_at = datetime('now','localtime') WHERE name = ?1",
-            "zcode" => "UPDATE mcp_servers SET enabled_zcode = ?2, updated_at = datetime('now','localtime') WHERE name = ?1",
-            other => return Err(format!("未知 agent：{other}")),
-        };
-        conn.execute(sql, rusqlite::params![name, enabled as i64])
-            .map_err(|e| e.to_string())?;
+        toggle_enabled(conn, &name, &agent, enabled)?;
         store::log_op(conn, "mcp.toggle", &name, json!({ "agent": agent, "enabled": enabled }));
         Ok(())
     })?;
@@ -554,7 +535,7 @@ pub fn mcp_delete(state: State<'_, Store>, name: String) -> Result<(), String> {
     remove_and_sync(&state, &name)
 }
 
-/// 校验目标文件：重算双端 diff（含漂移）
+/// 校验目标文件：重算各端 diff（含漂移）
 #[tauri::command]
 pub fn mcp_validate(state: State<'_, Store>) -> Result<McpOverviewPayload, String> {
     let (items, drift) = overview(&state)?;
@@ -564,10 +545,11 @@ pub fn mcp_validate(state: State<'_, Store>) -> Result<McpOverviewPayload, Strin
             "mcp.validate",
             "targets",
             json!({
-                "drifted_wb": items.iter().filter(|i| i.wb_status == "drifted").count(),
-                "drifted_zcode": items.iter().filter(|i| i.zcode_status == "drifted").count(),
-                "wb_only": drift.wb_only.len(),
-                "zcode_only": drift.zcode_only.len(),
+                "drifted": items
+                    .iter()
+                    .map(|i| i.agents.iter().filter(|a| a.status == "drifted").count())
+                    .sum::<usize>(),
+                "only": drift.agents.iter().map(|d| d.only.len()).sum::<usize>(),
             }),
         );
         Ok(())

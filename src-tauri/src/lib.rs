@@ -7,6 +7,7 @@ pub mod market;
 pub mod memory;
 pub mod migrate;
 pub mod modelfetch;
+pub mod plugins;
 pub mod providers;
 pub mod quota;
 pub mod store;
@@ -100,6 +101,8 @@ pub fn run() {
             commands::zcode_plugin_skills,
             commands::skill_delete,
             commands::recent_op_log,
+            plugins::plugin_list,
+            plugins::plugin_toggle,
             mcp::mcp_overview,
             mcp::mcp_adopt,
             mcp::mcp_save,

@@ -17,6 +17,7 @@ import {
   type MigrateReport,
   type SkillOverviewItem,
 } from '../api';
+import { agentChipClass } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog } from '../common/components/ConfirmDialog';
 import { ArchHelp } from '../common/components/ArchHelp';
@@ -49,10 +50,10 @@ function StatusChip({
   status: LinkStatus;
   onClick?: () => void;
   title?: string;
-  /** 身份色强化：zcode 的正常态用身份蓝（异常态保留 warn/err 状态色优先） */
-  agent?: 'wb' | 'zcode';
+  /** agent id：正常态用身份色（异常态保留 warn/err 状态色优先） */
+  agent?: string;
 }) {
-  const cls = agent === 'zcode' && status === 'linked' ? 'zc' : STATUS_CHIP[status];
+  const cls = status === 'linked' && agent ? agentChipClass(agent) : STATUS_CHIP[status];
   return (
     <span
       className={`chip ${cls}`}
@@ -65,7 +66,7 @@ function StatusChip({
   );
 }
 
-/** 迁移结果弹层（M1 报告） */
+/** 迁移结果弹层（M1 报告，按启用插件端分行展示） */
 function MigrationReportModal({ report, onClose }: { report: MigrateReport; onClose: () => void }) {
   return (
     <div
@@ -95,12 +96,18 @@ function MigrationReportModal({ report, onClose }: { report: MigrateReport; onCl
           </span>
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--color-text-3)', margin: '4px 0 10px' }}>
-          中央仓库 {report.central_dir} · 链接策略 {report.link_mode} · 导入 {report.imported.length} 个 ·
-          WB 重建 {report.wb_relinked.length} / 沿用 {report.wb_kept.length} / 失败{' '}
-          {report.wb_failed.length} · ZCode {report.zcode_action}
+          中央仓库 {report.central_dir} · 链接策略 {report.link_mode} · 导入 {report.imported.length} 个
         </div>
+        {report.agents.map((a) => (
+          <div key={a.agent} style={{ fontSize: 11.5, color: 'var(--color-text-2)', margin: '2px 0' }}>
+            <b style={{ color: 'var(--color-text-1)' }}>{a.display_name}</b> · {a.action}
+            {a.failed.length > 0 && (
+              <span style={{ color: 'var(--color-danger)' }}> · 失败 {a.failed.length}</span>
+            )}
+          </div>
+        ))}
         {report.imported.length > 0 && (
-          <div className="list" style={{ marginBottom: 10 }}>
+          <div className="list" style={{ marginBottom: 10, marginTop: 8 }}>
             {report.imported.map((s) => (
               <div className="li" key={s.name} style={{ padding: '7px 12px' }}>
                 <div className="grow">
@@ -253,7 +260,7 @@ export function SkillsPage() {
     }
   };
 
-  const fixOne = async (name: string, agent: 'workbuddy' | 'zcode') => {
+  const fixOne = async (name: string, agent: string) => {
     setError(null);
     try {
       await relinkSkill(name, agent);
@@ -279,18 +286,12 @@ export function SkillsPage() {
     setError(null);
     const fails: string[] = [];
     for (const item of items) {
-      if (item.wb !== 'linked') {
+      for (const st of item.agents) {
+        if (st.whole_link || st.status === 'linked') continue;
         try {
-          await relinkSkill(item.name, 'workbuddy');
+          await relinkSkill(item.name, st.agent);
         } catch (e) {
-          fails.push(`WB/${item.name}: ${e}`);
-        }
-      }
-      if (!item.zcode_whole_link && item.zcode !== 'linked') {
-        try {
-          await relinkSkill(item.name, 'zcode');
-        } catch (e) {
-          fails.push(`ZCode/${item.name}: ${e}`);
+          fails.push(`${st.display_name}/${item.name}: ${e}`);
         }
       }
     }
@@ -335,7 +336,7 @@ export function SkillsPage() {
       const updated = await marketInstall(name);
       setMarket(updated);
       await refresh();
-      setMessage(`已安装「${name}」→ 中央仓库 → 双端分发`);
+      setMessage(`已安装「${name}」→ 中央仓库 → 分发到已启用插件`);
     } catch (e) {
       setError(`安装失败：${e}`);
     } finally {
@@ -344,17 +345,15 @@ export function SkillsPage() {
   };
 
   const centralEmpty = (status?.central_skills_count ?? 0) === 0;
-  const pendingCount = (items ?? []).filter(
-    (s) => s.wb !== 'linked' || (!s.zcode_whole_link && s.zcode !== 'linked'),
+  const pendingCount = (items ?? []).filter((s) =>
+    s.agents.some((st) => !st.whole_link && st.status !== 'linked'),
   ).length;
 
   return (
     <div>
       <PageHeader
         title={`Skills（${items?.length ?? '…'}）`}
-        sub={`中央仓库 ~/.agenthub/skills · 链接策略 ${status?.link_mode ?? '…'}${
-          status?.zcode.skills_dir_is_link ? ' · ZCode 整目录链' : ''
-        }`}
+        sub={`中央仓库 ~/.agenthub/skills · 链接策略 ${status?.link_mode ?? '…'} · 仅对 Plugin 岛已启用的适配器分发`}
       />
 
       {/* M1 迁移向导（中央仓库为空时显示） */}
@@ -443,7 +442,7 @@ export function SkillsPage() {
           ↻ 巡检
         </button>
         <button className="btn p" onClick={distributeAll} disabled={migrating || !items?.length}>
-          ⇉ 全部分发到双端
+          ⇉ 全部分发到已启用插件
         </button>
       </div>
 
@@ -509,44 +508,43 @@ export function SkillsPage() {
                 {item.description ?? '—'}
               </div>
               <div className="card-actions">
-                <StatusChip
-                  label={`WB ${STATUS_LABEL[item.wb]}`}
-                  status={item.wb}
-                  title={
-                    item.wb === 'linked'
-                      ? '软链已建：WB 内可见、可手动调用；自动调用开关见「WB 自动」'
-                      : '点击重建链接（指向中央仓库）'
-                  }
-                  onClick={
-                    item.wb === 'linked' ? undefined : () => fixOne(item.name, 'workbuddy')
-                  }
-                />
-                <span
-                  className={`chip ${item.wb_auto === null ? 'off' : item.wb_auto ? 'ok' : 'warn'}`}
-                  title={
-                    item.wb_auto === null
-                      ? 'WB 尚未收录该技能（在 WB 打开一次技能面板后即可同步开关）'
-                      : item.wb_auto
-                        ? 'WB 允许模型自动调用'
-                        : 'WB 已禁止模型自动调用（WB 内仍可手动使用）'
-                  }
-                >
-                  WB 自动 {item.wb_auto === null ? '?' : item.wb_auto ? '✓' : '关'}
-                </span>
-                {item.zcode_whole_link ? (
-                  <span className="chip zc" title="ZCode 处于整目录链模式，随中央仓库生效">
-                    ZCode ✓ 整链
-                  </span>
-                ) : (
-                  <StatusChip
-                    label={`ZCode ${STATUS_LABEL[item.zcode]}`}
-                    status={item.zcode}
-                    agent="zcode"
-                    title={item.zcode === 'linked' ? undefined : '点击重建链接（指向中央仓库）'}
-                    onClick={
-                      item.zcode === 'linked' ? undefined : () => fixOne(item.name, 'zcode')
+                {item.agents.map((st) => {
+                  return st.whole_link ? (
+                    <span
+                      key={st.agent}
+                      className={`chip ${agentChipClass(st.agent)}`}
+                      title={`${st.display_name} 处于整目录链模式，随中央仓库生效`}
+                    >
+                      {st.display_name} ✓ 整链
+                    </span>
+                  ) : (
+                    <StatusChip
+                      key={st.agent}
+                      label={`${st.display_name} ${STATUS_LABEL[st.status]}`}
+                      status={st.status}
+                      agent={st.agent}
+                      title={
+                        st.status === 'linked'
+                          ? '软链已建：agent 内可见、可调用'
+                          : '点击重建链接（指向中央仓库）'
+                      }
+                      onClick={st.status === 'linked' ? undefined : () => fixOne(item.name, st.agent)}
+                    />
+                  );
+                })}
+                {item.agents.some((st) => st.agent === 'workbuddy') && (
+                  <span
+                    className={`chip ${item.wb_auto === null ? 'off' : item.wb_auto ? 'ok' : 'warn'}`}
+                    title={
+                      item.wb_auto === null
+                        ? 'WB 尚未收录该技能（在 WB 打开一次技能面板后即可同步开关）'
+                        : item.wb_auto
+                          ? 'WB 允许模型自动调用'
+                          : 'WB 已禁止模型自动调用（WB 内仍可手动使用）'
                     }
-                  />
+                  >
+                    WB 自动 {item.wb_auto === null ? '?' : item.wb_auto ? '✓' : '关'}
+                  </span>
                 )}
                 <span className="chip err" style={{ cursor: 'pointer' }} onClick={() => setDeleting(item)}>
                   删除
@@ -652,7 +650,7 @@ export function SkillsPage() {
       {deleting && (
         <ConfirmDialog
           title="删除 Skill"
-          message={`删除「${deleting.name}」？\n双端引用将一并移除，中央仓库源文件删除前自动备份。`}
+          message={`删除「${deleting.name}」？\n各启用插件端的引用将一并移除，中央仓库源文件删除前自动备份。`}
           confirmLabel="删除"
           danger
           onConfirm={() => {
@@ -665,7 +663,7 @@ export function SkillsPage() {
       )}
       <ArchHelp
         title="Skills 岛架构"
-        desc="中央仓库 ~/.agenthub/skills 单一事实源；WB 逐项链、ZCode 整目录链；软链三级降级 symlink→junction→copy，替换实目录前自动备份。"
+        desc="中央仓库 ~/.agenthub/skills 单一事实源；各启用插件按适配器声明策略分发（逐项链 / 整目录链）；软链三级降级 symlink→junction→copy，替换实目录前自动备份。"
         img={skillsArch}
       />
     </div>

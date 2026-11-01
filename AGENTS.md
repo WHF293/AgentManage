@@ -4,16 +4,17 @@
 
 ## 项目概述
 
-**AgentHub**（v0.2.0）— AI Agent 统一管理工具（Tauri 2 Windows 桌面应用）：面向 WorkBuddy
-与 ZCode 双 Agent 的 Skills / MCP / 第三方模型 / WB 多账号 / Memory / 用量分析一站式管理台，
-替代已卸载的 cc-switch。中央仓库一份配置、双端生效。
+**AgentHub**（v0.4.0）— AI Agent 统一管理工具（Tauri 2 Windows 桌面应用）：可插拔适配器架构
+（内置 WorkBuddy / ZCode，社区可按 AgentAdapter 接口扩展 claude / codex / trae 等），提供
+Skills / MCP / 第三方模型 / 多账号 / Memory / 用量分析一站式管理台，替代已卸载的 cc-switch。
+中央仓库一份配置、分发到各已启用插件端。
 
 - 技术栈：**Tauri v2 + React 19 + TypeScript + Zustand + UnoCSS + ECharts 6（按需导入）+
   SQLite（rusqlite bundled）+ reqwest 0.12（blocking + rustls-tls）+ pnpm**
 - 中央存储：`~/.agenthub/`（agenthub.db 单一事实源 + skills/ 中央仓库 + backups/ 时间戳备份
   + market-cache/ + updates/ 在线更新下载区）
-- UI：Islands 布局 + 侧栏 7 岛（**Usage / Account / Skill / MCP / Model / Memory / Setting**，
-  单数文案定版）+ 明暗双主题（CSS variables，明/暗/跟随系统三态）
+- UI：Islands 布局 + 侧栏 8 岛（**Usage / Account / Skill / MCP / Model / Memory / Plugin /
+  Setting**，单数文案定版）+ 明暗双主题（CSS variables，明/暗/跟随系统三态）
 - 外壳：自绘标题栏（decorations:false）+ 托盘（打开面板/退出，默认关到托盘）+ 单实例插件
   （二次启动唤起已有窗口）+ 开机自启（tauri-plugin-autostart）
 - 里程碑：M0-M9 全部落地；在线更新已上线；数据侧已对齐双 Agent 官方口径
@@ -62,18 +63,31 @@ src/                    前端
   api.ts                invoke 封装（TS 类型与 Rust serde 一一对应，字段保持 snake_case）
   common/               useDesktopChrome / TitleBar（自绘外壳 + 版本徽标 + 更新入口）/
                         ConfirmDialog（含 InputDialog）/ AgentCard / PageHeader / LogoMark
-  pages/                7 个功能岛（Dashboard = Usage 岛：双 Agent 健康卡 + 用量分析）
+  pages/                8 个功能岛（Dashboard = Usage 岛：已启用插件健康卡 + 用量分析；
+                        Plugins = 可插拔适配器管理岛）
+  agents.ts             前端 agent 注册表（id → 名称 / 身份色，与 Rust adapters::registry() 对应）
   stores/               nav / theme（light|dark|system）/ ui（toast）
   styles/theme.css      主题 token（侧栏/列表/卡片=中性灰，按钮与底色=清新绿，用户定版；
                         WB=绿 / ZCode=天青蓝 双 Agent 身份色全局统一）
 src-tauri/src/
-  store.rs              SQLite 单一事实源 + schema v1（11 表）+ v1.1~v1.7 增量迁移
+  store.rs              SQLite 单一事实源 + schema v1（11 表）+ v1.1~v1.9 增量迁移
                         （headers_json / wb_slots TEXT 主键 / wb_session_seen / credit /
-                        wb_model_entries / usage_events.account 账号归属 / zcode_slots）
-  adapters/             mod.rs（agent_home + skills 目录扫描）/ wb.rs / zcode.rs —— 路径约定与资产探测
+                        wb_model_entries / usage_events.account 账号归属 / zcode_slots /
+                        mcp_servers.enabled_json 按 agent 启用态 / plugin_state 插件开关）
+  adapters/             可插拔核心层：mod.rs = AgentAdapter trait（能力声明 caps + skills 域
+                        链接策略/建链 + MCP 域配置形态/条目翻译）+ 静态注册表 registry()/by_id()；
+                        wb.rs / zcode.rs 各实现 trait（WB 逐项链 / ZCode 整目录链 + mcp.json
+                        disabled / config.json enabled 翻译）。社区新增 agent：实现 trait →
+                        REGISTRY 加一行 → 前端 agents.ts 补一条，引擎零改动
+  plugins.rs            插件启用状态（plugin_state 表）：首次运行按安装探测自动启用（source=auto），
+                        之后以用户手动开关为准持久化（source=manual）；enabled_adapters() 是
+                        skills 迁移 / MCP 同步 / usage 采集的统一门控入口
   fsutil.rs             软链三级策略（symlink→junction→copy）/ 原子写 / 备份 / fnv1a
-  migrate.rs            M1：双端 skills 并集导入中央仓库 → WB 逐项链 → ZCode 整目录链
-  mcp.rs                统一 MCP 表 ↔ 双格式翻译（合并式写入：托管字段覆盖，timeout/headers 等保留）
+  migrate.rs            M1：各启用插件端 skills 并集导入中央仓库 → 按各端策略建链
+                        （逐项链 / 整目录链由 AgentAdapter 声明，报告按 agent 分组）
+  mcp.rs                统一 MCP 引擎（agent 无关）：按注册表遍历启用插件端做格式翻译
+                        （合并式写入：托管字段覆盖，timeout/headers 等保留）；
+                        mcp_servers.enabled_json 按 agent 记启用态（NULL 回退旧列）
   providers.rs          ZCode v2/config.json 直写 + WB models.json 写穿（v1.5 托管清单）；
                         Key 只存目标文件不入库
   modelfetch.rs         /v1/models 候选链（models_url 覆写 → /v{N} 原样 → 剥离后缀兜底 →
@@ -125,10 +139,15 @@ src-tauri/src/
 6. **采集不卡 UI**：usage 命令全部 async + 分批短锁（400 条/批）+ `usage-collect-progress`
    事件推前端进度条 + COLLECTING 原子互斥防重入；应用启动即后台线程独立 WAL 连接全量+增量采集
    （不依赖页面打开）；历史永久留存 `~/.agenthub/agenthub.db`，卸载双 Agent 后仍可查
-7. **软链策略**：ZCode 整目录链 → `~/.agenthub/skills`；WB 逐项链；symlink 探测失败降级 junction；
+7. **软链策略（适配器声明）**：ZCode 整目录链 → `~/.agenthub/skills`；WB 逐项链 —— 由
+   AgentAdapter::skills_link() 声明，引擎不硬编码；symlink 探测失败降级 junction；
    所有替换先备份实目录。注意 WB 是「活端」会自发重写 skills 目录打掉软链（云同步/CDN 下载），
    ZCode 是「静端」—— WB 侧 diverged 巡检是已知待办
 8. **Skill 市场安装语义**：一律先进中央仓库再分发；「未添加 ≠ 禁用」——单端独有 server 不铺到另一端
+8.5. **可插拔插件语义（2026-11-01 定版）**：每个适配器 = 一个插件（Plugin 岛管理）。首次运行
+   （plugin_state 空表）按安装探测自动启用；之后一切以用户手动开关为准（持久化，后续启动只读配置
+   不自动变更）。停用插件的端不参与导入/分发/同步/采集，Usage 历史数据保留。IPC 与 DB 中的
+   agent 一律用稳定 id 字符串（"workbuddy"/"zcode"/社区自定义），前端经 src/agents.ts 渲染身份色
 9. **在线更新链路（NSIS 安装版，仓库已公开全匿名）**：update_check 检测双通道（302 重定向主通道，
    免匿名 API 限流 → 公开 API 兜底，资产 `AgentHub_v*_x64-setup.exe`）→ update_install reqwest
    直连下载安装包到 `~/.agenthub/updates/`（真实进度事件 `update-download-progress`）→ NSIS

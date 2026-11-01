@@ -11,7 +11,6 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::adapters::zcode;
 use crate::fsutil::{self, LinkMode, Res};
 use crate::migrate;
 use crate::store::{self, Store};
@@ -169,7 +168,7 @@ pub fn refresh_all() -> MarketCatalog {
     MarketCatalog { skills, warnings }
 }
 
-/// 从市场安装（或更新）一个 skill：缓存 → 中央仓库 → 双端分发
+/// 从市场安装（或更新）一个 skill：缓存 → 中央仓库 → 各启用插件端分发
 pub fn install(store: &Store, name: &str) -> Res<()> {
     // 在任一来源缓存里找
     let src = SOURCES
@@ -186,10 +185,16 @@ pub fn install(store: &Store, name: &str) -> Res<()> {
     }
     fsutil::copy_dir_recursive(&src, &dest)?;
 
-    // WB 逐项链（原实目录/断链/缺失都会被接管），zcode 整目录链天然生效
+    // 各启用插件端按策略分发（PerSkill 逐项链 / WholeDir 整链天然生效）
     let mode = migrate::parse_link_mode(None);
-    migrate::relink_wb_skill(name, &central, &store::backups_dir(), mode)?;
-    let _ = migrate::ensure_zcode_whole_link(&central, &store::backups_dir(), mode);
+    let skills_adapters: Vec<&'static dyn crate::adapters::AgentAdapter> =
+        crate::plugins::enabled_adapters(store)?
+            .into_iter()
+            .filter(|a| a.caps().skills)
+            .collect();
+    for a in &skills_adapters {
+        let _ = a.relink_skill(name, &central, &store::backups_dir(), mode);
+    }
 
     let (_, description) = fsutil::parse_skill_md(&dest.join("SKILL.md"));
     store.with(|conn| {
@@ -201,22 +206,22 @@ pub fn install(store: &Store, name: &str) -> Res<()> {
             "market",
             "builtin-sources",
         )?;
-        store::upsert_skill_link(
-            conn,
-            id,
-            "workbuddy",
-            mode.as_str(),
-            &crate::adapters::wb::skills_dir().join(name).to_string_lossy(),
-            "ok",
-        )?;
-        store::upsert_skill_link(
-            conn,
-            id,
-            "zcode",
-            &format!("whole-{}", mode.as_str()),
-            &zcode::skills_dir().to_string_lossy(),
-            "ok",
-        )?;
+        for a in &skills_adapters {
+            let whole = a.skills_link() == crate::adapters::SkillsLink::WholeDir;
+            let mode_str = if whole {
+                format!("whole-{}", mode.as_str())
+            } else {
+                mode.as_str().to_string()
+            };
+            store::upsert_skill_link(
+                conn,
+                id,
+                a.id(),
+                &mode_str,
+                &a.skills_dir().to_string_lossy(),
+                "ok",
+            )?;
+        }
         store::log_op(conn, "market.install", name, serde_json::json!({}));
         Ok(())
     })?;

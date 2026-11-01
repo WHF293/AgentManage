@@ -2,21 +2,34 @@ import { invoke } from '@tauri-apps/api/core';
 
 // ─── 与 Rust serde 结构一一对应（字段名保持 snake_case） ───
 
+export interface AgentCaps {
+  skills: boolean;
+  mcp: boolean;
+}
+
+/** 单 agent 探测状态（app_status.agents 元素；含停用插件） */
 export interface AgentStatus {
+  agent: string;
+  display_name: string;
+  desc: string;
+  /** 插件启用态（Plugin 岛配置） */
+  plugin_enabled: boolean;
   installed: boolean;
+  caps: AgentCaps;
   skills_dir: string;
   skills_dir_is_link: boolean;
   skills_dir_target: string | null;
   skills_count: number;
+  /** 登录态文件探测（无此概念的端恒 false） */
+  auth_found: boolean;
 }
 
 export interface AppStatus {
   hub_initialized: boolean;
   central_skills_count: number;
   link_mode: 'symlink' | 'junction' | 'copy';
-  workbuddy: AgentStatus;
-  zcode: AgentStatus;
-  auth_info_found: boolean;
+  /** 全部已注册适配器（前端按 plugin_enabled 过滤展示） */
+  agents: AgentStatus[];
 }
 
 export interface ImportedSkill {
@@ -25,20 +38,36 @@ export interface ImportedSkill {
   took: string;
 }
 
+export interface AgentMigrateReport {
+  agent: string;
+  display_name: string;
+  /** 整端动作（逐项链 n/m 或整链动作描述） */
+  action: string;
+  relinked: string[];
+  kept: string[];
+  failed: string[];
+}
+
 export interface MigrateReport {
   central_dir: string;
   link_mode: string;
   imported: ImportedSkill[];
   skipped_existing: number;
   import_warnings: string[];
-  wb_relinked: string[];
-  wb_kept: string[];
-  wb_failed: string[];
-  zcode_action: string;
+  /** 各启用插件端的结果（注册表顺序） */
+  agents: AgentMigrateReport[];
   warnings: string[];
 }
 
 export type LinkStatus = 'linked' | 'diverged' | 'broken' | 'missing';
+
+export interface SkillAgentState {
+  agent: string;
+  display_name: string;
+  status: LinkStatus;
+  /** 该端处于整目录链模式（单 skill 状态恒为 linked） */
+  whole_link: boolean;
+}
 
 export interface SkillOverviewItem {
   name: string;
@@ -46,10 +75,9 @@ export interface SkillOverviewItem {
   source: string;
   source_ref: string | null;
   enabled: boolean;
-  wb: LinkStatus;
-  zcode: LinkStatus;
-  zcode_whole_link: boolean;
-  /** WB 端「允许模型自动调用」实测（null = WB 存储未收录） */
+  /** 各启用插件端的状态（注册表顺序） */
+  agents: SkillAgentState[];
+  /** WB 端「允许模型自动调用」实测（null = WB 存储未收录；WB 专属特性） */
   wb_auto: boolean | null;
 }
 
@@ -70,7 +98,7 @@ export const runSkillsMigration = (mode?: string) =>
 
 export const skillsOverview = () => invoke<SkillOverviewItem[]>('skills_overview');
 
-export const relinkSkill = (name: string, agent: 'workbuddy' | 'zcode') =>
+export const relinkSkill = (name: string, agent: string) =>
   invoke<string>('relink_skill', { name, agent });
 
 /** 启停：DB 状态 + 写穿 WB「允许模型自动调用」，返回同步结果消息 */
@@ -92,23 +120,53 @@ export const zcodePluginSkills = () => invoke<PluginSkillItem[]>('zcode_plugin_s
 
 export const recentOpLog = (limit = 20) => invoke<OpLogRow[]>('recent_op_log', { limit });
 
+// ─── Plugin 岛（可插拔适配器） ───
+
+export interface PluginInfo {
+  agent: string;
+  display_name: string;
+  desc: string;
+  /** 用户配置的启用/停用 */
+  enabled: boolean;
+  /** 本机安装探测（仅提示） */
+  installed: boolean;
+  caps: AgentCaps;
+  /** 状态来源：auto = 首次运行按安装探测；manual = 用户手动设置 */
+  source: string;
+}
+
+export const pluginList = () =>
+  invoke<{ items: PluginInfo[] }>('plugin_list');
+
+export const pluginToggle = (agent: string, enabled: boolean) =>
+  invoke<void>('plugin_toggle', { agent, enabled });
+
 // ─── M3 MCP ───
+
+export interface McpAgentState {
+  agent: string;
+  display_name: string;
+  enabled: boolean;
+  status: 'ok' | 'disabled' | 'missing' | 'drifted' | 'unsupported';
+}
 
 export interface McpOverviewItem {
   name: string;
   type: string;
   command: string | null;
   url: string | null;
-  enabled_wb: boolean;
-  enabled_zcode: boolean;
-  wb_status: 'ok' | 'disabled' | 'missing' | 'drifted';
-  zcode_status: 'ok' | 'disabled' | 'missing' | 'drifted' | 'unsupported';
-  zcode_unsupported: boolean;
+  /** 各启用插件端的实测（注册表顺序） */
+  agents: McpAgentState[];
+}
+
+export interface McpAgentDrift {
+  agent: string;
+  display_name: string;
+  only: string[];
 }
 
 export interface McpDrift {
-  wb_only: string[];
-  zcode_only: string[];
+  agents: McpAgentDrift[];
 }
 
 export interface McpOverviewPayload {
@@ -124,8 +182,8 @@ export interface McpServerInput {
   url: string | null;
   env: Record<string, string>;
   headers?: Record<string, string>;
-  enabled_wb: boolean;
-  enabled_zcode: boolean;
+  /** 按 agent 的启用态（agent id → enabled） */
+  enabled: Record<string, boolean>;
 }
 
 export const mcpOverview = () => invoke<McpOverviewPayload>('mcp_overview');
@@ -133,7 +191,7 @@ export const mcpAdopt = (overwrite: boolean) =>
   invoke<number>('mcp_adopt', { overwrite });
 export const mcpSave = (server: McpServerInput) =>
   invoke<void>('mcp_save', { server });
-export const mcpToggle = (name: string, agent: 'workbuddy' | 'zcode', enabled: boolean) =>
+export const mcpToggle = (name: string, agent: string, enabled: boolean) =>
   invoke<void>('mcp_toggle', { name, agent, enabled });
 export const mcpDelete = (name: string) => invoke<void>('mcp_delete', { name });
 export const mcpValidate = () => invoke<McpOverviewPayload>('mcp_validate');

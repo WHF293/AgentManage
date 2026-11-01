@@ -10,6 +10,7 @@ import {
   type McpOverviewPayload,
   type McpServerInput,
 } from '../api';
+import { agentChipClass, agentMeta } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog } from '../common/components/ConfirmDialog';
 import { ArchHelp } from '../common/components/ArchHelp';
@@ -20,7 +21,7 @@ const STATUS_TEXT: Record<string, string> = {
   disabled: '禁用',
   missing: '未分发',
   drifted: '漂移',
-  unsupported: '不支持 HTTP → 仅 WB',
+  unsupported: '不支持此类型',
 };
 const STATUS_COLOR: Record<string, string> = {
   ok: 'ok',
@@ -73,8 +74,7 @@ function parseMcpJson(
 function entryToInput(
   name: string,
   e: Record<string, unknown>,
-  toWb: boolean,
-  toZc: boolean,
+  enabled: Record<string, boolean>,
 ): McpServerInput {
   const args = Array.isArray(e.args)
     ? e.args.map(String)
@@ -95,18 +95,19 @@ function entryToInput(
     url: typeof e.url === 'string' ? e.url : null,
     env: kv(e.env),
     headers: kv(e.headers),
-    enabled_wb: toWb,
-    enabled_zcode: toZc,
+    enabled,
   };
 }
 
-/** D2 新增/编辑弹窗（表单 / JSON 两种输入方式） */
+/** D2 新增/编辑弹窗（表单 / JSON 两种输入方式）；mcpAgents = 已启用且具备 MCP 能力的插件端 */
 function ServerModal({
   initial,
+  mcpAgents,
   onClose,
   onSaved,
 }: {
   initial: McpOverviewItem | null;
+  mcpAgents: { agent: string; display_name: string }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -116,8 +117,14 @@ function ServerModal({
   const [argsText, setArgsText] = useState('');
   const [url, setUrl] = useState(initial?.url ?? '');
   const [envText, setEnvText] = useState('');
-  const [toWb, setToWb] = useState(true);
-  const [toZc, setToZc] = useState(true);
+  // 各插件端分发开关（agent id → enabled；默认全开，编辑时取该行现状）
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const a of mcpAgents) {
+      init[a.agent] = initial ? (initial.agents.find((x) => x.agent === a.agent)?.enabled ?? true) : true;
+    }
+    return init;
+  });
   const [err, setErr] = useState<string | null>(null);
   const [mode, setMode] = useState<'form' | 'json'>('form');
   const [jsonText, setJsonText] = useState<string>(() =>
@@ -163,7 +170,7 @@ function ServerModal({
       let okCount = 0;
       for (const { name: n, entry } of entries) {
         try {
-          await mcpSave(entryToInput(n, entry, toWb, toZc));
+          await mcpSave(entryToInput(n, entry, enabled));
           okCount += 1;
         } catch (e) {
           fails.push(`${n}: ${e}`);
@@ -199,8 +206,7 @@ function ServerModal({
             return i > 0 ? [l.slice(0, i), l.slice(i + 1)] : [l, ''];
           }),
       ),
-      enabled_wb: toWb,
-      enabled_zcode: toZc,
+      enabled,
     };
     try {
       await mcpSave(input);
@@ -298,7 +304,7 @@ function ServerModal({
           <div style={{ marginTop: 12 }}>
             <div style={label}>
               粘贴 MCP JSON（支持 mcpServers 包裹 / 名称→条目 映射，可批量粘贴；headers 支持；
-              WB 的 disabled 与 ZCode 的 enabled 会由下方开关统一决定）
+              各插件端的启用态由下方开关统一决定）
             </div>
             <textarea
               style={{ ...field, minHeight: 220, fontFamily: 'Consolas, monospace', lineHeight: 1.6 }}
@@ -308,25 +314,34 @@ function ServerModal({
             />
           </div>
         )}
-        <div className="flex items-center" style={{ gap: 12, margin: '12px 0', fontSize: 12 }}>
-          <span className={`sw${toWb ? ' on' : ''}`} onClick={() => setToWb(!toWb)} />
-          分发到 WorkBuddy
-          <span className={`sw zc${toZc ? ' on' : ''}`} onClick={() => setToZc(!toZc)} />
-          分发到 ZCode
+        <div className="flex items-center flex-wrap" style={{ gap: 12, margin: '12px 0', fontSize: 12 }}>
+          {mcpAgents.map((a) => {
+            const meta = agentMeta(a.agent);
+            return (
+              <span key={a.agent} className="flex items-center" style={{ gap: 6 }}>
+                <span
+                  className={`sw${enabled[a.agent] ? ' on' : ''}`}
+                  style={meta.accentVar && enabled[a.agent] ? { background: meta.accentVar } : undefined}
+                  onClick={() => setEnabled({ ...enabled, [a.agent]: !enabled[a.agent] })}
+                />
+                分发到 {a.display_name}
+              </span>
+            );
+          })}
         </div>
         {err && (
           <div style={{ fontSize: 12, color: 'var(--color-danger)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{err}</div>
         )}
         <div className="flex" style={{ gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn gh" onClick={onClose}>取消</button>
-          <button className="btn p" onClick={submit}>保存并同步双端</button>
+          <button className="btn p" onClick={submit}>保存并同步已启用插件</button>
         </div>
       </div>
     </div>
   );
 }
 
-/** M3 MCP 岛 —— D1 统一列表（双端开关/漂移检测） + D2 弹窗 */
+/** M3 MCP 岛 —— D1 统一列表（按插件端开关/漂移检测） + D2 弹窗 */
 export function McpPage() {
   const [payload, setPayload] = useState<McpOverviewPayload | null>(null);
   const [editing, setEditing] = useState<McpOverviewItem | null>(null);
@@ -348,6 +363,11 @@ export function McpPage() {
     void refresh();
   }, [refresh]);
 
+  // 已启用且具备 MCP 能力的插件端（列表非空时以首个 item 的 agents 为准，兜底 WB/ZCode）
+  const mcpAgents: { agent: string; display_name: string }[] =
+    payload?.items[0]?.agents.map((a) => ({ agent: a.agent, display_name: a.display_name })) ??
+    [];
+
   const adopt = async (overwrite: boolean) => {
     setError(null);
     try {
@@ -359,10 +379,10 @@ export function McpPage() {
     }
   };
 
-  const toggle = async (item: McpOverviewItem, agent: 'workbuddy' | 'zcode') => {
+  const toggle = async (item: McpOverviewItem, agent: string) => {
+    const cur = item.agents.find((a) => a.agent === agent)?.enabled ?? true;
     try {
-      const enabled = agent === 'workbuddy' ? !item.enabled_wb : !item.enabled_zcode;
-      await mcpToggle(item.name, agent, enabled);
+      await mcpToggle(item.name, agent, !cur);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -387,9 +407,8 @@ export function McpPage() {
       const p = await mcpValidate();
       setPayload(p);
       const drifted =
-        p.items.filter((i) => i.wb_status === 'drifted' || i.zcode_status === 'drifted').length +
-        p.drift.wb_only.length +
-        p.drift.zcode_only.length;
+        p.items.filter((i) => i.agents.some((a) => a.status === 'drifted')).length +
+        p.drift.agents.reduce((n, d) => n + d.only.length, 0);
       setMessage(drifted === 0 ? '目标文件与统一定义一致，无漂移' : `发现 ${drifted} 处漂移/未收编`);
     } catch (e) {
       setError(String(e));
@@ -398,14 +417,18 @@ export function McpPage() {
 
   const items = payload?.items ?? [];
   const hasDb = items.length > 0;
-  const hasDrift =
-    (payload?.drift.wb_only.length ?? 0) + (payload?.drift.zcode_only.length ?? 0) > 0;
+  const driftOnlyTotal = (payload?.drift.agents ?? []).reduce((n, d) => n + d.only.length, 0);
+  const hasDrift = driftOnlyTotal > 0;
+  const agentLabel = (payload?.drift.agents ?? [])
+    .filter((d) => d.only.length > 0)
+    .map((d) => `${d.only.length} 个（${d.display_name}）`)
+    .join(' / ');
 
   return (
     <div>
       <PageHeader
         title={`MCP Servers（${items.length || '…'}）`}
-        sub="统一定义 → WB mcp.json（disabled 字段）× ZCode cli/config.json（enabled 字段）"
+        sub="统一定义 → 各启用插件端目标文件（由适配器完成格式翻译）· 仅对 Plugin 岛已启用的适配器生效"
       />
 
       {/* 收编提示（未接管 / 漂移时显示） */}
@@ -416,8 +439,7 @@ export function McpPage() {
               <b>{hasDb ? '发现未收编条目' : '首次接管'}</b>
               <span style={{ color: 'var(--color-text-2)' }}>
                 {' '}
-                · 目标文件中有 {payload?.drift.wb_only.length ?? 0} 个（WB）/
-                {payload?.drift.zcode_only.length ?? 0} 个（ZCode）server 不在统一定义中
+                · 目标文件中有 {agentLabel || '0 个'} server 不在统一定义中
               </span>
             </div>
             <button className="btn p" onClick={() => adopt(false)}>
@@ -453,16 +475,19 @@ export function McpPage() {
       <div className="item-grid">
         {items.length === 0 ? (
           <div className="item-card" style={{ color: 'var(--color-text-3)', fontSize: 12 }}>
-            统一定义为空 —— 点上方「收编」把双端现有 server 纳入管理，或新增。
+            统一定义为空 —— 点上方「收编」把各启用插件端现有 server 纳入管理，或新增。
           </div>
         ) : (
           items.map((item) => (
             <div className="item-card sm" key={item.name}>
               <div className="card-top">
                 <span
-                  className={`sw${item.enabled_wb || item.enabled_zcode ? ' on' : ''}`}
-                  title="点击切换双端启用（任一端启用即亮）"
-                  onClick={() => toggle(item, item.enabled_wb ? 'workbuddy' : 'zcode')}
+                  className={`sw${item.agents.some((a) => a.enabled) ? ' on' : ''}`}
+                  title="点击切换启用（任一插件端启用即亮）"
+                  onClick={() => {
+                    const first = item.agents.find((a) => a.enabled);
+                    void toggle(item, (first ?? item.agents[0]).agent);
+                  }}
                 />
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="nm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -478,22 +503,25 @@ export function McpPage() {
                 {item.type} · {item.command ?? item.url ?? '—'}
               </div>
               <div className="card-actions">
-                <span
-                  className={`chip ${item.wb_status === 'ok' ? 'ok' : STATUS_COLOR[item.wb_status]}`}
-                  style={{ cursor: 'pointer' }}
-                  title="点击切换 WB 启用态"
-                  onClick={() => toggle(item, 'workbuddy')}
-                >
-                  WB {STATUS_TEXT[item.wb_status]}
-                </span>
-                <span
-                  className={`chip ${item.zcode_status === 'ok' ? 'zc' : STATUS_COLOR[item.zcode_status]}`}
-                  style={{ cursor: item.zcode_unsupported ? 'default' : 'pointer' }}
-                  title={item.zcode_unsupported ? undefined : '点击切换 ZCode 启用态'}
-                  onClick={item.zcode_unsupported ? undefined : () => toggle(item, 'zcode')}
-                >
-                  ZCode {STATUS_TEXT[item.zcode_status]}
-                </span>
+                {item.agents.map((a) => {
+                  return (
+                    <span
+                      key={a.agent}
+                      className={`chip ${a.status === 'ok' ? agentChipClass(a.agent) : STATUS_COLOR[a.status]}`}
+                      style={{ cursor: a.status === 'unsupported' ? 'default' : 'pointer' }}
+                      title={
+                        a.status === 'unsupported'
+                          ? `${a.display_name} 不支持此 server 类型`
+                          : `点击切换 ${a.display_name} 启用态`
+                      }
+                      onClick={
+                        a.status === 'unsupported' ? undefined : () => toggle(item, a.agent)
+                      }
+                    >
+                      {a.display_name} {STATUS_TEXT[a.status]}
+                    </span>
+                  );
+                })}
                 <span
                   className="chip off"
                   style={{ cursor: 'pointer' }}
@@ -513,6 +541,7 @@ export function McpPage() {
       {(creating || editing) && (
         <ServerModal
           initial={editing}
+          mcpAgents={mcpAgents}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -528,7 +557,7 @@ export function McpPage() {
       {deleting && (
         <ConfirmDialog
           title="删除 MCP Server"
-          message={`删除统一定义「${deleting.name}」并从双端移除？（目标文件有备份）`}
+          message={`删除统一定义「${deleting.name}」并从各启用插件端移除？（目标文件有备份）`}
           confirmLabel="删除"
           danger
           onConfirm={() => {
@@ -541,7 +570,7 @@ export function McpPage() {
       )}
       <ArchHelp
         title="MCP 岛架构"
-        desc="统一定义存 SQLite mcp_servers；双格式翻译写 WB mcp.json（disabled）与 ZCode config.json（enabled）；合并式写入仅覆盖托管容器，timeout/headers 等原样保留。"
+        desc="统一定义存 SQLite mcp_servers（按 agent 的启用态 JSON）；各启用插件端由适配器完成格式翻译与合并式写入（仅覆盖托管容器，timeout/headers 等原样保留）。新增 agent 适配器零改动接入。"
         img={mcpArch}
       />
     </div>

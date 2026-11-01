@@ -31,7 +31,11 @@ fn main() {
             println!("收编 {n} 个 server");
         }
         match agenthub_lib::mcp::sync_all(&store) {
-            Ok((wb, zc)) => println!("{wb}\n{zc}"),
+            Ok(reports) => {
+                for r in reports {
+                    println!("{} servers → {}", r.written, r.display_name);
+                }
+            }
             Err(e) => {
                 eprintln!("MCP 同步失败: {e}");
                 std::process::exit(1);

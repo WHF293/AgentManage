@@ -10,6 +10,7 @@ import { McpPage } from './pages/Mcp';
 import { ModelsPage } from './pages/Models';
 import { AccountsPage } from './pages/Accounts';
 import { MemoryPage } from './pages/Memory';
+import { PluginsPage } from './pages/Plugins';
 import { SettingsPage } from './pages/Settings';
 
 function ToastHost() {
@@ -40,6 +41,8 @@ function CurrentPage() {
       return <AccountsPage />;
     case 'memory':
       return <MemoryPage />;
+    case 'plugins':
+      return <PluginsPage />;
     case 'settings':
       return <SettingsPage />;
   }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAppStatus, type AppStatus } from '../api';
+import { agentMeta } from '../agents';
 import { AgentCard } from '../common/components/AgentCard';
 import { UsagePage } from './Usage';
 
-/** Usage 岛：双 Agent 健康 + 用量分析（概览信息已并入 Setting 岛，页头行已删除） */
+/** Usage 岛：已启用插件的健康卡 + 用量分析（概览信息已并入 Setting 岛，页头行已删除） */
 export function DashboardPage() {
   const [status, setStatus] = useState<AppStatus | null>(null);
 
@@ -21,37 +22,40 @@ export function DashboardPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const wbReady = status?.workbuddy.installed ?? false;
-  const zcReady = status?.zcode.installed ?? false;
+  // 只展示已启用插件（停用的适配器对用户不可见，Plugin 岛可再开启）
+  const shown = (status?.agents ?? []).filter((a) => a.plugin_enabled);
 
   return (
     <div>
-      {/* 双 Agent 健康卡 */}
-      <div className="mb-3 grid grid-cols-2 gap-2.5">
-        <AgentCard
-          name="WorkBuddy"
-          agent="wb"
-          sub="~/.workbuddy · skills 逐项链 / mcp.json / memory / 账号槽位"
-          status={wbReady && (status?.workbuddy.skills_count ?? 0) > 0 ? 'ok' : wbReady ? 'warn' : 'off'}
-          detail={
-            wbReady
-              ? `skills 目录${status?.workbuddy.skills_dir_is_link ? '（软链）' : ''} · ${status?.workbuddy.skills_count ?? 0} 项 · 登录态${status?.auth_info_found ? '已找到' : '未找到'}`
-              : '未检测到 ~/.workbuddy'
-          }
-          ready={wbReady}
-        />
-        <AgentCard
-          name="ZCode"
-          agent="zcode"
-          sub="~/.zcode · skills 整目录链 / cli config / v2 providers"
-          status={zcReady && (status?.zcode.skills_count ?? 0) > 0 ? 'ok' : zcReady ? 'warn' : 'off'}
-          detail={
-            zcReady
-              ? `skills 目录${status?.zcode.skills_dir_is_link ? '（软链 → 中央仓库）' : '（实目录，待迁移）'} · ${status?.zcode.skills_count ?? 0} 项`
-              : '未检测到 ~/.zcode'
-          }
-          ready={zcReady}
-        />
+      {/* 已启用插件健康卡 */}
+      <div
+        className="mb-3 grid gap-2.5"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}
+      >
+        {shown.map((a) => {
+          const meta = agentMeta(a.agent);
+          const wbAuth = a.agent === 'workbuddy' ? ` · 登录态${a.auth_found ? '已找到' : '未找到'}` : '';
+          return (
+            <AgentCard
+              key={a.agent}
+              name={a.display_name}
+              accent={meta.accentVar}
+              sub={`~/.${a.agent} · 已启用插件`}
+              status={a.installed && a.skills_count > 0 ? 'ok' : a.installed ? 'warn' : 'off'}
+              detail={
+                a.installed
+                  ? `skills 目录${a.skills_dir_is_link ? '（软链）' : ''} · ${a.skills_count} 项${wbAuth}`
+                  : `未检测到 ~/.${a.agent}（Plugin 岛可停用该插件）`
+              }
+              ready={a.installed}
+            />
+          );
+        })}
+        {shown.length === 0 && (
+          <div className="card" style={{ padding: 14, color: 'var(--color-text-3)', fontSize: 12 }}>
+            尚未启用任何 agent 插件 —— 到 Plugin 岛开启。
+          </div>
+        )}
       </div>
 
       {/* 用量分析 */}

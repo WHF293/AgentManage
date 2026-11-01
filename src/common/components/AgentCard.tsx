@@ -1,23 +1,22 @@
-/** 双 Agent 健康卡（Usage 岛顶部）；agent 传入时以身份色强化（wb=绿 / zcode=蓝） */
+/** agent 健康卡（Usage 岛顶部）；accent 传入时以身份色强化（WorkBuddy=绿 / ZCode=蓝 / 其他=注册表色） */
 export function AgentCard({
   name,
   sub,
   status,
   detail,
   ready,
-  agent,
+  accent,
 }: {
   name: string;
   sub: string;
   status: 'ok' | 'warn' | 'off';
   detail: string;
   ready: boolean;
-  agent?: 'wb' | 'zcode';
+  /** 身份色 CSS 变量（src/agents.ts 注册表） */
+  accent?: string;
 }) {
   const chip = status === 'ok' ? 'ok' : status === 'warn' ? 'warn' : 'off';
   const label = !ready ? '未接入' : status === 'ok' ? '● 配置正常' : '● 待处理';
-  const accent =
-    agent === 'zcode' ? 'var(--color-agent-zcode)' : agent === 'wb' ? 'var(--color-agent-wb)' : undefined;
   return (
     <div className="card hover-zoom" style={{ padding: 14 }}>
       <div className="flex items-center justify-between">
