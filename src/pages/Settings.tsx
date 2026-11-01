@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from '@tauri-apps/plugin-autostart';
 import { invoke } from '@tauri-apps/api/core';
-import { recentOpLog, type OpLogRow } from '../api';
+import { recentOpLog, updateProxyGet, updateProxySet, type OpLogRow } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
 import { useThemeStore, type ThemeMode } from '../stores/theme';
 import { toast } from '../stores/ui';
@@ -16,10 +16,20 @@ export function SettingsPage() {
     () => localStorage.getItem(CLOSE_TO_TRAY_KEY) !== '0',
   );
   const [ops, setOps] = useState<OpLogRow[]>([]);
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [proxySaved, setProxySaved] = useState('');
+  const [savingProxy, setSavingProxy] = useState(false);
 
   useEffect(() => {
     void recentOpLog(10)
       .then(setOps)
+      .catch(() => {});
+    void updateProxyGet()
+      .then((u) => {
+        // 未配置时预填默认本地代理（默认 127.0.0.1:7897，可随意改；清空保存 = 恢复直连）
+        setProxyUrl(u || 'http://127.0.0.1:7897');
+        setProxySaved(u);
+      })
       .catch(() => {});
     // 自启动：以系统实际状态为准（浏览器预览回退 localStorage）
     (async () => {
@@ -55,6 +65,19 @@ export function SettingsPage() {
       setCloseToTray(!on);
     }
   }, []);
+
+  const saveProxy = useCallback(async () => {
+    setSavingProxy(true);
+    try {
+      await updateProxySet(proxyUrl.trim());
+      setProxySaved(proxyUrl.trim());
+      toast(proxyUrl.trim() ? '更新代理已保存，立即生效' : '已清除更新代理，恢复直连');
+    } catch (e) {
+      toast(String(e).replace(/^.*?"|".*$/g, '') || '保存失败', 'err');
+    } finally {
+      setSavingProxy(false);
+    }
+  }, [proxyUrl]);
 
   const modes: [ThemeMode, string][] = [
     ['system', '跟随系统'],
@@ -104,6 +127,47 @@ export function SettingsPage() {
             className={`sw${closeToTray ? ' on' : ''}`}
             onClick={() => void toggleCloseToTray(!closeToTray)}
           />
+        </div>
+        <div className="li">
+          <div className="ic">⇅</div>
+          <div className="grow">
+            <div className="nm">更新代理</div>
+            <div className="ds">
+              检查更新 / 下载安装包经此代理访问 GitHub（默认 127.0.0.1:7897；代理工具换地址/端口直接改这里，
+              支持 http / socks5，无需更新应用）；清空保存 = 恢复直连
+            </div>
+            <div className="flex" style={{ gap: 6, marginTop: 6 }}>
+              <input
+                style={{
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 9,
+                  padding: '6px 10px',
+                  background: 'var(--color-surface)',
+                  color: 'var(--color-text-1)',
+                  fontSize: 12,
+                  flex: 1,
+                  minWidth: 0,
+                  outline: 'none',
+                }}
+                placeholder="http://127.0.0.1:7897"
+                value={proxyUrl}
+                onChange={(e) => setProxyUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && proxyUrl.trim() !== proxySaved) void saveProxy();
+                }}
+              />
+              <button
+                className="btn gh"
+                disabled={savingProxy || proxyUrl.trim() === proxySaved}
+                onClick={() => void saveProxy()}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+          <span className={`chip ${proxySaved ? 'ok' : 'off'}`}>
+            {proxySaved ? '走代理' : '直连'}
+          </span>
         </div>
         <div className="li">
           <div className="ic">↻</div>

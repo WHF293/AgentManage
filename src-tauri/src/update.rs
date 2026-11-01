@@ -11,7 +11,7 @@ use std::process::Command;
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::fsutil::Res;
+use crate::fsutil::{self, Res};
 use crate::store;
 
 const REPO: &str = "WHF293/AgentManage";
@@ -36,12 +36,30 @@ struct ReleaseAsset {
     url: String,
 }
 
+fn update_proxy_file() -> PathBuf {
+    store::hub_dir().join("update_proxy.txt")
+}
+
+/// 读更新代理地址（空文件 / 空白 → None = 直连）。参照 whf-stock-board 的
+/// 「更新代理」设定：打包版 reqwest 跟随系统代理不稳定（Clash 后开不感知），
+/// 检测与下载必须同走显式代理，否则检测通了下载拉不下来。
+pub fn read_update_proxy() -> Option<String> {
+    fsutil::read_opt(&update_proxy_file())
+        .and_then(|b| String::from_utf8(b).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn http_client() -> Res<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
+    let mut b = reqwest::blocking::Client::builder()
         .user_agent(USER_AGENT)
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| format!("HTTP 客户端构建失败: {e}"))
+        .timeout(std::time::Duration::from_secs(20));
+    if let Some(proxy) = read_update_proxy() {
+        let p = reqwest::Proxy::all(&proxy)
+            .map_err(|e| format!("代理地址无效（{proxy}）: {e}"))?;
+        b = b.proxy(p);
+    }
+    b.build().map_err(|e| format!("HTTP 客户端构建失败: {e}"))
 }
 
 /// 资产名匹配：AgentHub_v*_x64-setup.exe（NSIS 安装包）
@@ -269,4 +287,21 @@ pub async fn update_install(app: tauri::AppHandle, input: InstallInput) -> Resul
     })
     .await
     .map_err(|e| format!("更新任务失败: {e}"))?
+}
+
+/// 读更新代理地址（设置岛「更新代理」；空 = 直连）
+#[tauri::command]
+pub fn update_proxy_get() -> String {
+    read_update_proxy().unwrap_or_default()
+}
+
+/// 设置更新代理地址（空串 = 清除恢复直连）；写入即生效（每次请求新建 client 时读取）
+#[tauri::command]
+pub fn update_proxy_set(url: String) -> Result<(), String> {
+    let url = url.trim().to_string();
+    // 非空时先试建代理对象，避免存进一个用不了的地址
+    if !url.is_empty() {
+        reqwest::Proxy::all(&url).map_err(|e| format!("代理地址无效: {e}"))?;
+    }
+    fsutil::atomic_write(&update_proxy_file(), url.as_bytes())
 }

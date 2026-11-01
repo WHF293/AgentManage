@@ -499,6 +499,10 @@ export const updateCheck = () => invoke<UpdateCheckInfo>('update_check');
 export const updateInstall = (info: { tag: string; asset_name: string; asset_url: string }) =>
   invoke<void>('update_install', { input: info });
 
+/** 更新代理（设置岛）：检测与下载共用，空 = 直连 */
+export const updateProxyGet = () => invoke<string>('update_proxy_get');
+export const updateProxySet = (url: string) => invoke<void>('update_proxy_set', { url });
+
 // ─── M7 Skill 市场 ───
 
 export interface MarketSkill {

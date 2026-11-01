@@ -161,6 +161,8 @@ pub fn run() {
             commands::set_close_to_tray,
             update::update_check,
             update::update_install,
+            update::update_proxy_get,
+            update::update_proxy_set,
         ])
         .on_window_event(|window, event| {
             // 关闭行为：默认关到托盘（设置岛可切换为直接退出）
