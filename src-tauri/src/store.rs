@@ -113,6 +113,28 @@ impl Store {
                 conn.execute_batch("ALTER TABLE usage_events ADD COLUMN credit REAL NOT NULL DEFAULT 0")
                     .map_err(|e| format!("credit 列迁移失败: {e}"))?;
             }
+            // v1.6：用量事件账号归属（WB 多账号：sessions.user_id 关联；'' = 未归属/ZCode 单账号）
+            let has_account: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('usage_events') WHERE name = 'account'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            if has_account == 0 {
+                conn.execute_batch("ALTER TABLE usage_events ADD COLUMN account TEXT NOT NULL DEFAULT ''")
+                    .map_err(|e| format!("account 列迁移失败: {e}"))?;
+            }
+            // v1.7：ZCode 账号槽位（credentials.json 快照，登录态文件级复制）
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS zcode_slots (
+                   id TEXT PRIMARY KEY,
+                   label TEXT NOT NULL,
+                   slot_dir TEXT NOT NULL,
+                   saved_at TEXT
+                 );",
+            )
+            .map_err(|e| format!("zcode_slots 建表失败: {e}"))?;
             // v1.5：Models 岛 WB 写穿托管清单（WB models.json 中由 AgentHub 管理的条目 id ↔ provider）
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS wb_model_entries (

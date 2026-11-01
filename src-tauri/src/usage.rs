@@ -297,6 +297,8 @@ struct WbEvent {
     ts_ms: i64,
     model: String,
     session: String,
+    /// 账号 uid（sessions.user_id 关联；查不到 = ''）
+    account: String,
     inp: i64,
     ot: i64,
     ch: i64,
@@ -304,8 +306,39 @@ struct WbEvent {
     request_id: String,
 }
 
+/// WB 多账号归属映射：session_id → user_id（只读 workbuddy.db，仅取元数据）
+fn wb_session_accounts() -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let db = wb::dir().join("workbuddy.db");
+    if !db.is_file() {
+        return map;
+    }
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
+        return map;
+    };
+    let Ok(mut stmt) =
+        conn.prepare("SELECT id, user_id FROM sessions WHERE IFNULL(user_id,'') != ''")
+    else {
+        return map;
+    };
+    if let Ok(rows) = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        for r in rows.flatten() {
+            map.insert(r.0, r.1);
+        }
+    }
+    map
+}
+
 /// 纯解析不持锁：读一个 jsonl 增量段，返回解析出的事件与新偏移
-fn collect_wb_jsonl_file(path: &Path, offset: i64) -> Res<(Vec<WbEvent>, i64)> {
+fn collect_wb_jsonl_file(
+    path: &Path,
+    offset: i64,
+    accounts: &std::collections::HashMap<String, String>,
+) -> Res<(Vec<WbEvent>, i64)> {
     let Ok(mut file) = std::fs::File::open(path) else {
         return Ok((Vec::new(), offset));
     };
@@ -405,14 +438,16 @@ fn collect_wb_jsonl_file(path: &Path, offset: i64) -> Res<(Vec<WbEvent>, i64)> {
             let request_id = crate::fsutil::fnv1a(&format!(
                 "{stem}|{model}|{ts_ms}|{tt}|{it}|{ot}|{credit}"
             ));
+            let session = v
+                .get("sessionId")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             events.push(WbEvent {
                 ts_ms,
                 model,
-                session: v
-                    .get("sessionId")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string(),
+                account: accounts.get(&session).cloned().unwrap_or_default(),
+                session,
                 inp: (it - ch).max(0),
                 ot,
                 ch,
@@ -432,8 +467,8 @@ fn insert_wb_events(store: &Store, events: &[WbEvent]) -> Res<usize> {
             let mut n = 0;
             for e in chunk {
                 let r = hub.execute(
-                    "INSERT OR IGNORE INTO usage_events(agent, ts, model, provider, session_id, input_tokens, output_tokens, cache_read_tokens, credit, source, request_id)
-                     VALUES ('workbuddy', ?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 'wb-projects', ?8)",
+                    "INSERT OR IGNORE INTO usage_events(agent, ts, model, provider, session_id, input_tokens, output_tokens, cache_read_tokens, credit, source, request_id, account)
+                     VALUES ('workbuddy', ?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 'wb-projects', ?8, ?9)",
                     rusqlite::params![
                         ts_to_local(e.ts_ms),
                         e.model,
@@ -442,7 +477,8 @@ fn insert_wb_events(store: &Store, events: &[WbEvent]) -> Res<usize> {
                         e.ot,
                         e.ch,
                         e.credit,
-                        e.request_id
+                        e.request_id,
+                        e.account
                     ],
                 );
                 if matches!(r, Ok(c) if c > 0) {
@@ -474,6 +510,7 @@ fn collect_wb_projects(store: &Store, app: Option<&AppHandle>) -> Res<usize> {
     if !root.is_dir() {
         return Ok(0);
     }
+    let accounts = wb_session_accounts();
     let mut files = Vec::new();
     collect_wb_files(&root, &mut files);
     let total = files.len();
@@ -512,7 +549,7 @@ fn collect_wb_projects(store: &Store, app: Option<&AppHandle>) -> Res<usize> {
             continue;
         }
         let start = if mtime == last_mtime { last_offset } else { 0 };
-        let (events, new_offset) = collect_wb_jsonl_file(p, start)?;
+        let (events, new_offset) = collect_wb_jsonl_file(p, start, &accounts)?;
         total_inserted += insert_wb_events(store, &events)?;
         store.with(|conn| {
             conn.execute(
@@ -540,7 +577,8 @@ fn collect_wb_snapshot(store: &Store) -> Res<usize> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT u.session_id, IFNULL(s.model,''), IFNULL(u.used,0), u.updated_at
+            "SELECT u.session_id, IFNULL(s.model,''), IFNULL(u.used,0), u.updated_at,
+                    IFNULL(s.user_id,'')
              FROM session_usage u LEFT JOIN sessions s ON s.id = u.session_id",
         )
         .map_err(|e| e.to_string())?;
@@ -551,10 +589,11 @@ fn collect_wb_snapshot(store: &Store) -> Res<usize> {
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })
         .map_err(|e| e.to_string())?;
-    let mut sessions: Vec<(String, String, i64, i64)> = Vec::new();
+    let mut sessions: Vec<(String, String, i64, i64, String)> = Vec::new();
     for r in rows {
         sessions.push(r.map_err(|e| e.to_string())?);
     }
@@ -563,7 +602,7 @@ fn collect_wb_snapshot(store: &Store) -> Res<usize> {
 
     let mut inserted = 0;
     store.with(|hub| {
-        for (session_id, model, used, updated_ms) in sessions {
+        for (session_id, model, used, updated_ms, account) in sessions {
             let last_used: i64 = hub
                 .query_row(
                     "SELECT last_used FROM wb_session_seen WHERE session_id = ?1",
@@ -577,9 +616,9 @@ fn collect_wb_snapshot(store: &Store) -> Res<usize> {
             let diff = if last_used < 0 { used } else { used - last_used };
             if diff > 0 {
                 hub.execute(
-                    "INSERT INTO usage_events(agent, ts, model, provider, session_id, input_tokens, output_tokens, cache_read_tokens, source, request_id)
-                     VALUES ('workbuddy', ?1, ?2, NULL, ?3, ?4, 0, 0, 'session-snapshot', NULL)",
-                    rusqlite::params![ts_to_local(updated_ms), model, session_id, diff],
+                    "INSERT INTO usage_events(agent, ts, model, provider, session_id, input_tokens, output_tokens, cache_read_tokens, source, request_id, account)
+                     VALUES ('workbuddy', ?1, ?2, NULL, ?3, ?4, 0, 0, 'session-snapshot', NULL, ?5)",
+                    rusqlite::params![ts_to_local(updated_ms), model, session_id, diff, account],
                 )
                 .map_err(|e| e.to_string())?;
                 inserted += 1;
@@ -630,7 +669,29 @@ fn do_collect_all(store: &Store, app: Option<&AppHandle>) -> Res<(usize, usize)>
     } else {
         collect_wb_snapshot(store)?
     };
+    backfill_wb_accounts(store)?;
     Ok((z, w))
+}
+
+/// 存量 WB 事件账号回填：session_id → sessions.user_id（幂等，只补 account='' 的行）
+fn backfill_wb_accounts(store: &Store) -> Res<usize> {
+    let accounts = wb_session_accounts();
+    if accounts.is_empty() {
+        return Ok(0);
+    }
+    let mut updated = 0;
+    store.with(|conn| {
+        for (session, uid) in &accounts {
+            updated += conn
+                .execute(
+                    "UPDATE usage_events SET account = ?2
+                     WHERE agent = 'workbuddy' AND session_id = ?1 AND account = ''",
+                    rusqlite::params![session, uid],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(updated)
+    })
 }
 
 // ─── 聚合查询 ───
@@ -638,6 +699,8 @@ fn do_collect_all(store: &Store, app: Option<&AppHandle>) -> Res<(usize, usize)>
 #[derive(Debug, Serialize)]
 pub struct AgentTotal {
     pub agent: String,
+    /// 账号 uid（'' = ZCode 单账号/未归属）
+    pub account: String,
     pub calls: i64,
     pub input_tokens: i64,
     pub output_tokens: i64,
@@ -649,6 +712,7 @@ pub struct AgentTotal {
 #[derive(Debug, Serialize)]
 pub struct ModelBreakdown {
     pub agent: String,
+    pub account: String,
     pub model: String,
     pub calls: i64,
     pub tokens: i64,
@@ -658,6 +722,7 @@ pub struct ModelBreakdown {
 pub struct CurvePoint {
     pub bucket: i64, // 0..47（每 30min）
     pub agent: String,
+    pub account: String,
     pub tokens: i64,
 }
 
@@ -665,6 +730,7 @@ pub struct CurvePoint {
 pub struct HeatCell {
     pub date: String,
     pub agent: String,
+    pub account: String,
     pub tokens: i64,
     pub calls: i64,
 }
@@ -835,19 +901,20 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
     store.with(|conn| {
         let mut totals = Vec::new();
         let mut stmt = conn.prepare(
-            "SELECT agent, COUNT(*), SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(credit)
-             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY agent ORDER BY agent",
+            "SELECT agent, account, COUNT(*), SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(credit)
+             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY agent, account ORDER BY agent, account",
         )
         .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(rusqlite::params![w.start, w.end], |row| {
                 Ok(AgentTotal {
                     agent: row.get(0)?,
-                    calls: row.get(1)?,
-                    input_tokens: row.get(2)?,
-                    output_tokens: row.get(3)?,
-                    cache_read_tokens: row.get(4)?,
-                    credit: row.get::<_, Option<f64>>(5)?.unwrap_or(0.0),
+                    account: row.get(1)?,
+                    calls: row.get(2)?,
+                    input_tokens: row.get(3)?,
+                    output_tokens: row.get(4)?,
+                    cache_read_tokens: row.get(5)?,
+                    credit: row.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -857,18 +924,19 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
 
         let mut models = Vec::new();
         let mut stmt = conn.prepare(
-            "SELECT agent, model, COUNT(*), SUM(input_tokens + output_tokens + cache_read_tokens)
-             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY agent, model
-             ORDER BY 4 DESC LIMIT 8",
+            "SELECT agent, account, model, COUNT(*), SUM(input_tokens + output_tokens + cache_read_tokens)
+             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY agent, account, model
+             ORDER BY 5 DESC LIMIT 16",
         )
         .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(rusqlite::params![w.start, w.end], |row| {
                 Ok(ModelBreakdown {
                     agent: row.get(0)?,
-                    model: row.get(1)?,
-                    calls: row.get(2)?,
-                    tokens: row.get(3)?,
+                    account: row.get(1)?,
+                    model: row.get(2)?,
+                    calls: row.get(3)?,
+                    tokens: row.get(4)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -880,8 +948,8 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
         if w.is_day {
             let mut stmt = conn.prepare(
                 "SELECT (CAST(strftime('%H', ts) AS INT) * 2 + CAST(strftime('%M', ts) AS INT) / 30) AS bucket,
-                        agent, SUM(input_tokens + output_tokens + cache_read_tokens)
-                 FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY bucket, agent ORDER BY bucket",
+                        agent, account, SUM(input_tokens + output_tokens + cache_read_tokens)
+                 FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY bucket, agent, account ORDER BY bucket",
             )
             .map_err(|e| e.to_string())?;
             let rows = stmt
@@ -889,7 +957,8 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
                     Ok(CurvePoint {
                         bucket: row.get(0)?,
                         agent: row.get(1)?,
-                        tokens: row.get(2)?,
+                        account: row.get(2)?,
+                        tokens: row.get(3)?,
                     })
                 })
                 .map_err(|e| e.to_string())?;
@@ -907,8 +976,8 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
 
         let mut heatmap = Vec::new();
         let mut stmt = conn.prepare(
-            "SELECT date(ts), agent, SUM(input_tokens + output_tokens + cache_read_tokens), COUNT(*)
-             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY date(ts), agent ORDER BY date(ts)",
+            "SELECT date(ts), agent, account, SUM(input_tokens + output_tokens + cache_read_tokens), COUNT(*)
+             FROM usage_events WHERE ts >= ?1 AND ts < ?2 GROUP BY date(ts), agent, account ORDER BY date(ts)",
         )
         .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -916,8 +985,9 @@ pub fn overview(store: &Store, range: &str) -> Res<UsageOverview> {
                 Ok(HeatCell {
                     date: row.get(0)?,
                     agent: row.get(1)?,
-                    tokens: row.get(2)?,
-                    calls: row.get(3)?,
+                    account: row.get(2)?,
+                    tokens: row.get(3)?,
+                    calls: row.get(4)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -953,11 +1023,13 @@ pub async fn usage_overview(state: State<'_, Store>, range: String) -> Result<Us
     overview(&state, &range)
 }
 
-/// 日期 × Agent × 模型 聚合矩阵（日历格子与 hover 明细的数据源）
+/// 日期 × Agent × 账号 × 模型 聚合矩阵（日历格子与 hover 明细的数据源）
 #[derive(Debug, Serialize)]
 pub struct MatrixCell {
     pub date: String,
     pub agent: String,
+    /// 账号 uid（'' = ZCode 单账号/未归属）
+    pub account: String,
     pub model: String,
     pub tokens: i64,
     pub calls: i64,
@@ -968,9 +1040,9 @@ pub async fn usage_matrix(state: State<'_, Store>) -> Result<Vec<MatrixCell>, St
     state.with(|conn| {
         let mut stmt = conn
             .prepare(
-                "SELECT date(ts), agent, model,
+                "SELECT date(ts), agent, account, model,
                         SUM(input_tokens + output_tokens + cache_read_tokens), COUNT(*)
-                 FROM usage_events GROUP BY date(ts), agent, model ORDER BY date(ts)",
+                 FROM usage_events GROUP BY date(ts), agent, account, model ORDER BY date(ts)",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
@@ -978,9 +1050,47 @@ pub async fn usage_matrix(state: State<'_, Store>) -> Result<Vec<MatrixCell>, St
                 Ok(MatrixCell {
                     date: row.get(0)?,
                     agent: row.get(1)?,
-                    model: row.get(2)?,
+                    account: row.get(2)?,
+                    model: row.get(3)?,
+                    tokens: row.get(4)?,
+                    calls: row.get(5)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    })
+}
+
+/// 账号清单（筛选 chip 数据源）：全库按 agent+account 聚合
+#[derive(Debug, Serialize)]
+pub struct UsageAccount {
+    pub agent: String,
+    /// 账号 uid（'' = ZCode 单账号/未归属）
+    pub account: String,
+    pub calls: i64,
+    pub tokens: i64,
+}
+
+#[tauri::command]
+pub async fn usage_accounts(state: State<'_, Store>) -> Result<Vec<UsageAccount>, String> {
+    state.with(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT agent, account, COUNT(*), SUM(input_tokens + output_tokens + cache_read_tokens)
+                 FROM usage_events WHERE account != '' GROUP BY agent, account ORDER BY agent, account",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(UsageAccount {
+                    agent: row.get(0)?,
+                    account: row.get(1)?,
+                    calls: row.get(2)?,
                     tokens: row.get(3)?,
-                    calls: row.get(4)?,
                 })
             })
             .map_err(|e| e.to_string())?;

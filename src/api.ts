@@ -233,11 +233,86 @@ export const wbSwitch = (slotId: string, confirmKill: boolean) =>
   invoke<SwitchReport>('wb_switch', { input: { slot_id: slotId, confirm_kill: confirmKill } });
 export const wbImportLegacy = () => invoke<number>('wb_import_legacy');
 export const wbDeleteSlot = (slotId: string) => invoke<void>('wb_delete_slot', { slot: slotId });
+export const wbRenameSlot = (slotId: string, label: string) =>
+  invoke<void>('wb_rename_slot', { input: { slot_id: slotId, label } });
+
+// ─── ZCode 账号槽位 + 额度 ───
+
+export interface ZcodeSlot {
+  id: string;
+  label: string;
+  saved_at: string;
+  file_ok: boolean;
+  /** 槽位快照与当前登录态一致（该账号当前生效） */
+  active: boolean;
+}
+
+export interface ZcodeAccountOverview {
+  installed: boolean;
+  cred_found: boolean;
+  /** ZCode.exe 是否正在运行 */
+  running: boolean;
+  slots: ZcodeSlot[];
+}
+
+export interface ZcodeSwitchReport {
+  ok: boolean;
+  steps: string[];
+  error: string | null;
+}
+
+export const zcodeOverview = () => invoke<ZcodeAccountOverview>('zcode_overview');
+export const zcodeSaveSlot = (label: string) => invoke<ZcodeSlot>('zcode_save_slot', { label });
+export const zcodeSwitch = (slotId: string) =>
+  invoke<ZcodeSwitchReport>('zcode_switch', { input: { slot_id: slotId } });
+export const zcodeDeleteSlot = (slotId: string) =>
+  invoke<void>('zcode_delete_slot', { slot: slotId });
+export const zcodeRenameSlot = (slotId: string, label: string) =>
+  invoke<void>('zcode_rename_slot', { input: { slot_id: slotId, label } });
+export const zcodeLaunch = () => invoke<void>('zcode_launch');
+
+export interface QuotaWindow {
+  used_pct: number;
+  used: number;
+  total: number;
+  remaining: number;
+  reset_at: string;
+}
+
+export interface ZcodeQuota {
+  plan_level: string;
+  h5: QuotaWindow;
+  week: QuotaWindow;
+}
+
+/** 官方接口实时额度（读 ZCode 配置中的 Coding Plan Key，不展示不落库） */
+export const zcodeQuota = () => invoke<ZcodeQuota>('zcode_quota');
+
+export interface WbCreditSummary {
+  month_used: number;
+  monthly_total: number;
+  remaining: number;
+}
+
+export const wbCreditSummary = () => invoke<WbCreditSummary>('wb_credit_summary');
+export const wbCreditSetTotal = (total: number) =>
+  invoke<void>('wb_credit_set_total', { input: { total } });
+
+/** 按账户（uid）的 WB 积分用量（槽位卡片展示用） */
+export interface WbAccountCredit {
+  uid: string;
+  today_used: number;
+  month_used: number;
+  remaining: number;
+}
+export const wbCreditByAccount = () => invoke<WbAccountCredit[]>('wb_credit_by_account');
 
 // ─── M9 用量 ───
 
 export interface AgentTotal {
   agent: string;
+  /** 账号 uid（'' = ZCode 单账号/未归属） */
+  account: string;
   calls: number;
   input_tokens: number;
   output_tokens: number;
@@ -248,6 +323,7 @@ export interface AgentTotal {
 
 export interface ModelBreakdown {
   agent: string;
+  account: string;
   model: string;
   calls: number;
   tokens: number;
@@ -256,12 +332,14 @@ export interface ModelBreakdown {
 export interface CurvePoint {
   bucket: number;
   agent: string;
+  account: string;
   tokens: number;
 }
 
 export interface HeatCell {
   date: string;
   agent: string;
+  account: string;
   tokens: number;
   calls: number;
 }
@@ -281,9 +359,19 @@ export interface UsageOverview {
 export interface MatrixCell {
   date: string;
   agent: string;
+  /** 账号 uid（'' = ZCode 单账号/未归属） */
+  account: string;
   model: string;
   tokens: number;
   calls: number;
+}
+
+export interface UsageAccount {
+  agent: string;
+  /** 账号 uid（'' = ZCode 单账号/未归属） */
+  account: string;
+  calls: number;
+  tokens: number;
 }
 
 export const usageCollect = () =>
@@ -293,6 +381,8 @@ export const usageOverview = (range: string) =>
   invoke<UsageOverview>('usage_overview', { range });
 
 export const usageMatrix = () => invoke<MatrixCell[]>('usage_matrix');
+
+export const usageAccounts = () => invoke<UsageAccount[]>('usage_accounts');
 
 // ─── 在线更新 ───
 

@@ -8,9 +8,11 @@ pub mod memory;
 pub mod migrate;
 pub mod modelfetch;
 pub mod providers;
+pub mod quota;
 pub mod store;
 pub mod update;
 pub mod usage;
+pub mod zaccount;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -114,9 +116,21 @@ pub fn run() {
             account::wb_switch,
             account::wb_import_legacy,
             account::wb_delete_slot,
+            account::wb_rename_slot,
             usage::usage_collect,
             usage::usage_overview,
             usage::usage_matrix,
+            usage::usage_accounts,
+            zaccount::zcode_overview,
+            zaccount::zcode_save_slot,
+            zaccount::zcode_switch,
+            zaccount::zcode_delete_slot,
+            zaccount::zcode_rename_slot,
+            zaccount::zcode_launch,
+            quota::zcode_quota,
+            quota::wb_credit_summary,
+            quota::wb_credit_by_account,
+            quota::wb_credit_set_total,
             market::market_refresh,
             market::market_install,
             memory::memory_global_list,

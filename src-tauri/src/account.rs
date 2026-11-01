@@ -379,6 +379,30 @@ pub fn wb_overview(state: State<'_, Store>) -> Result<WbOverview, String> {
     overview(&state)
 }
 
+/// 槽位改名 input（WB / ZCode 共用）
+#[derive(Debug, serde::Deserialize)]
+pub struct SlotRenameInput {
+    pub slot_id: String,
+    pub label: String,
+}
+
+#[tauri::command]
+pub fn wb_rename_slot(state: State<'_, Store>, input: SlotRenameInput) -> Result<(), String> {
+    let label = input.label.trim();
+    if label.is_empty() {
+        return Err("槽位名称不能为空".into());
+    }
+    state.with(|conn| {
+        conn.execute(
+            "UPDATE wb_slots SET label = ?2 WHERE id = ?1",
+            rusqlite::params![input.slot_id, label],
+        )
+        .map_err(|e| e.to_string())?;
+        store::log_op(conn, "wb.rename_slot", label, serde_json::json!({ "id": input.slot_id }));
+        Ok(())
+    })
+}
+
 #[tauri::command]
 pub fn wb_save_slot(state: State<'_, Store>, label: String) -> Result<WbSlot, String> {
     save_slot(&state, &label)

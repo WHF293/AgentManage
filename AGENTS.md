@@ -67,8 +67,9 @@ src/                    前端
   styles/theme.css      主题 token（侧栏/列表/卡片=中性灰，按钮与底色=清新绿，用户定版；
                         WB=绿 / ZCode=天青蓝 双 Agent 身份色全局统一）
 src-tauri/src/
-  store.rs              SQLite 单一事实源 + schema v1（11 表）+ v1.1~v1.5 增量迁移
-                        （headers_json / wb_slots TEXT 主键 / wb_session_seen / credit / wb_model_entries）
+  store.rs              SQLite 单一事实源 + schema v1（11 表）+ v1.1~v1.7 增量迁移
+                        （headers_json / wb_slots TEXT 主键 / wb_session_seen / credit /
+                        wb_model_entries / usage_events.account 账号归属 / zcode_slots）
   adapters/             mod.rs（agent_home + skills 目录扫描）/ wb.rs / zcode.rs —— 路径约定与资产探测
   fsutil.rs             软链三级策略（symlink→junction→copy）/ 原子写 / 备份 / fnv1a
   migrate.rs            M1：双端 skills 并集导入中央仓库 → WB 逐项链 → ZCode 整目录链
@@ -79,9 +80,18 @@ src-tauri/src/
                         GLM 系网关内置推荐兜底；anthropic 原生 x-api-key 优先）
   market.rs             Skill 市场（anthropics/skills + obra/superpowers + cexll/myclaude，通用树扫描）
   account.rs            WB 槽位：tasklist 检测 →（UI 确认后关进程）→ 备份 → 恢复 → 校验 → 启动 → 回滚
+  zaccount.rs           ZCode 槽位：~/.zcode/v2/credentials.json 文件级复制（token enc:v1: 加密
+                        不读取）→ 备份 → 原子写入 → JSON 校验 → 失败回滚；CLI 每次启动重读凭据，
+                        无需进程管理
+  quota.rs              ZCode Coding Plan 官方额度（GET open.bigmodel.cn/api/monitor/usage/quota/limit，
+                        Key 读 ZCode v2 config 的 builtin:bigmodel-coding-plan options.apiKey 明文，
+                        unit=3→5h / unit=6→周）+ WB 积分汇总（剩余 = ~/.agenthub/keys/wb-credit-total
+                        − 本月已用 credit，与账单同源）
   memory.rs             全局记忆统一（真身 ~/.agenthub/MEMORY.md，双端路径建文件符号链接，幂等）
                         + .ai/ 桥接（init/sync/consolidate，FNV 块指纹漂移检测）
-  usage.rs              用量双源采集 + 聚合（见下「关键约定」第 5/6 条）
+  usage.rs              用量双源采集 + 聚合（见下「关键约定」第 5/6 条）；WB 事件经
+                        sessions.user_id 打账号标（wb_session_accounts + 存量回填），
+                        聚合/矩阵/账号清单输出均带 account 维度（Usage 岛范围筛选数据源）
   update.rs             在线更新（NSIS 安装版，链路对齐 whf-stock-board 实证实现；仓库已公开全匿名）：
                         检测 302 重定向主通道 → 公开 API 兜底；reqwest 直连下载安装包到
                         ~/.agenthub/updates/（真实进度）；安装 = cmd 链 `ping -n 4 & "{setup}" /S

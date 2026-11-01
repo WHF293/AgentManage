@@ -10,10 +10,13 @@ import {
 import { BarChart, LineChart, PieChart } from 'echarts/charts';
 import { CanvasRenderer } from 'echarts/renderers';
 import {
+  usageAccounts,
   usageCollect,
   usageMatrix,
   usageOverview,
+  wbOverview,
   type MatrixCell,
+  type UsageAccount,
   type UsageOverview,
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
@@ -34,6 +37,15 @@ echarts.use([
 type Granularity = 'day' | 'week' | 'month' | 'year';
 type ViewMode = 'calendar' | 'chart';
 type AgentFilter = 'all' | 'workbuddy' | 'zcode';
+/** 范围筛选：agent 维度 + 账号维度（account='all' 表示该 Agent 全部账号） */
+interface Scope {
+  agent: AgentFilter;
+  account: string;
+}
+const SCOPE_ALL: Scope = { agent: 'all', account: 'all' };
+const matchScope = (agent: string, account: string, s: Scope): boolean =>
+  (s.agent === 'all' || agent === s.agent) && (s.account === 'all' || account === s.account);
+const scopeEq = (a: Scope, b: Scope): boolean => a.agent === b.agent && a.account === b.account;
 
 const AGENT_LABEL: Record<string, string> = { zcode: 'ZCode', workbuddy: 'WorkBuddy' };
 /** 双 Agent 身份色（全局定版）：WorkBuddy = 主题绿，ZCode = 天青蓝；汇总 = 主绿 */
@@ -99,11 +111,11 @@ const shiftMonth = (ym: string, delta: number): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
-/** 聚合视图：某 key（日/月/年）下的合计与 agent-model 明细 */
+/** 聚合视图：某 key（日/月/年）下的合计与 agent-account-model 明细 */
 interface Bucket {
   tokens: number;
   calls: number;
-  details: { agent: string; model: string; tokens: number }[];
+  details: { agent: string; account: string; model: string; tokens: number }[];
 }
 
 function buildBuckets(matrix: MatrixCell[]): {
@@ -130,20 +142,22 @@ function buildBuckets(matrix: MatrixCell[]): {
     for (const b of [bDay, bMon, by]) {
       b.tokens += c.tokens;
       b.calls += c.calls;
-      // 同 agent-model 合并（月/年桶跨天重复出现，必须聚合而非逐条追加）
-      const ex = b.details.find((d) => d.agent === c.agent && d.model === c.model);
+      // 同 agent-account-model 合并（月/年桶跨天重复出现，必须聚合而非逐条追加）
+      const ex = b.details.find(
+        (d) => d.agent === c.agent && d.account === c.account && d.model === c.model,
+      );
       if (ex) ex.tokens += c.tokens;
-      else b.details.push({ agent: c.agent, model: c.model, tokens: c.tokens });
+      else b.details.push({ agent: c.agent, account: c.account, model: c.model, tokens: c.tokens });
     }
   }
   return { byDay, byMonth, byYear };
 }
 
 /** hover 明细文本：workbuddy-glm-5.3-flash: 1.2亿 token */
-const detailText = (b: Bucket | undefined, agent: AgentFilter): string => {
+const detailText = (b: Bucket | undefined, scope: Scope): string => {
   if (!b) return '0 token';
   const lines = b.details
-    .filter((d) => agent === 'all' || d.agent === agent)
+    .filter((d) => matchScope(d.agent, d.account, scope))
     .sort((a, b2) => b2.tokens - a.tokens)
     .map((d) => `${d.agent}-${d.model}: ${fmtTok(d.tokens)} token`);
   return lines.length > 0 ? lines.join('\n') : '0 token';
@@ -185,6 +199,19 @@ function useEChart(factory: () => echarts.EChartsCoreOption, deps: unknown[]) {
 }
 
 /**
+ * 模块级数据缓存（组件卸载不丢）：页面切换回来时若缓存仍在有效期内，
+ * 直接复用、跳过全量采集（usageCollect 要扫 jsonl，是最重的一步）。
+ * 「刷新」按钮 / 5min 轮询才真正重新采集。
+ */
+const CACHE_TTL = 5 * 60 * 1000;
+let dataCache: {
+  at: number;
+  matrix: MatrixCell[];
+  accounts: UsageAccount[];
+  slotLabels: Record<string, string>;
+} | null = null;
+
+/**
  * Usage 岛 —— 盈亏日历式三级下钻（年历 → 月历 → 日历）+ 日历/曲线切换 +
  * hover 显示 agent-model 消耗明细 + Agent 三开关。当日消耗用 24h 曲线呈现。
  */
@@ -195,7 +222,9 @@ export function UsagePage() {
   const [monY, setMonY] = useState(new Date().getFullYear()); // 月历视图当前年
   const [selectedDate, setSelectedDate] = useState(todayStr()); // 点日格选中的日期
   const [weekStart, setWeekStart] = useState<string>(mondayOf(todayStr())); // 周视图当前周（周一）
-  const [agent, setAgent] = useState<AgentFilter>('all');
+  const [scope, setScope] = useState<Scope>(SCOPE_ALL);
+  const [accounts, setAccounts] = useState<UsageAccount[]>([]);
+  const [slotLabels, setSlotLabels] = useState<Record<string, string>>({});
   const [matrix, setMatrix] = useState<MatrixCell[] | null>(null);
   const [overview, setOverview] = useState<UsageOverview | null>(null);
   const [progress, setProgress] = useState<{ stage: string; done: number; total: number } | null>(null);
@@ -220,12 +249,31 @@ export function UsagePage() {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
+    // 缓存有效期内直接复用（切页回来的挂载路径），不触发全量采集
+    if (!force && dataCache && Date.now() - dataCache.at < CACHE_TTL) {
+      setMatrix(dataCache.matrix);
+      setAccounts(dataCache.accounts);
+      setSlotLabels(dataCache.slotLabels);
+      return;
+    }
     setRefreshing(true);
     setError(null);
     try {
       await usageCollect();
-      setMatrix(await usageMatrix());
+      const [mx, ac] = await Promise.all([usageMatrix(), usageAccounts()]);
+      setMatrix(mx);
+      setAccounts(ac);
+      // WB 槽位 label 用于账户 chip 文案（uid → label；失败降级 uid 前缀）
+      const labels: Record<string, string> = {};
+      try {
+        const o = await wbOverview();
+        for (const s of o.slots) if (s.uid && !(s.uid in labels)) labels[s.uid] = s.label;
+      } catch {
+        /* label 拿不到就降级 uid 前缀，不阻塞主流程 */
+      }
+      setSlotLabels(labels);
+      dataCache = { at: Date.now(), matrix: mx, accounts: ac, slotLabels: labels };
     } catch (e) {
       setError(String(e));
     } finally {
@@ -233,8 +281,15 @@ export function UsagePage() {
     }
   }, []);
 
+  // 挂载：优先吃缓存（有效期内零采集），过期才全量
   useEffect(() => {
-    void refresh();
+    void refresh(false);
+  }, [refresh]);
+
+  // 页面停留期间 5min 轮询，保持数据新鲜（同时给缓存续期）
+  useEffect(() => {
+    const t = setInterval(() => void refresh(true), CACHE_TTL);
+    return () => clearInterval(t);
   }, [refresh]);
 
   // 当前上下文的 overview range
@@ -252,14 +307,32 @@ export function UsagePage() {
       .catch((e) => setError(String(e)));
   }, [overviewRange, matrix]);
 
+  /** 账户 chip 文案：WB 用槽位 label（无则 uid 前 8 位），ZCode 单账号 */
+  const accountLabel = useCallback(
+    (agent: string, account: string): string => {
+      if (agent === 'zcode') return 'ZCode';
+      const lb = slotLabels[account];
+      return `WB·${lb && lb.trim() ? lb : account.slice(0, 8) || '未归属'}`;
+    },
+    [slotLabels],
+  );
+
+  /** 当前范围的显示名 */
+  const scopeLabel =
+    scope.account !== 'all'
+      ? accountLabel(scope.agent, scope.account)
+      : scope.agent === 'all'
+        ? '双 Agent'
+        : AGENT_LABEL[scope.agent];
+
   // agent 过滤后的聚合
   const filtered = useMemo(() => {
-    const rows = (matrix ?? []).filter((c) => agent === 'all' || c.agent === agent);
+    const rows = (matrix ?? []).filter((c) => matchScope(c.agent, c.account, scope));
     return buildBuckets(rows);
-  }, [matrix, agent]);
+  }, [matrix, scope]);
 
   const totals = useMemo(() => {
-    const list = (overview?.totals ?? []).filter((t) => agent === 'all' || t.agent === agent);
+    const list = (overview?.totals ?? []).filter((t) => matchScope(t.agent, t.account, scope));
     const sum = (f: (t: (typeof list)[number]) => number) => list.reduce((a, t) => a + f(t), 0);
     return {
       calls: sum((t) => t.calls),
@@ -268,7 +341,7 @@ export function UsagePage() {
       all: sum((t) => t.input_tokens + t.output_tokens + t.cache_read_tokens),
       credit: sum((t) => t.credit),
     };
-  }, [overview, agent]);
+  }, [overview, scope]);
 
   // ── 日历模式渲染数据 ──
   const maxOfDay = Math.max(1, ...[...filtered.byDay.values()].map((b) => b.tokens));
@@ -298,7 +371,9 @@ export function UsagePage() {
   // ── 曲线模式（echarts）：x = 时间（按天/按月/按年），堆叠柱 + hover 明细 ──
   const chartRef = useEChart(() => {
     const c = themeColors();
-    const agents = agent === 'all' ? ['workbuddy', 'zcode'] : [agent];
+    const agents = scope.agent === 'all' ? ['workbuddy', 'zcode'] : [scope.agent];
+    const seriesName = (a: string) =>
+      scope.account !== 'all' ? accountLabel(a, scope.account) : (AGENT_LABEL[a] ?? a);
     let cats: string[] = [];
     let seriesData: Record<string, number[]> = {};
     let title = '';
@@ -309,7 +384,9 @@ export function UsagePage() {
         seriesData[a] = cats.map((d) => {
           const b = filtered.byDay.get(d);
           if (!b) return 0;
-          return b.details.filter((x) => x.agent === a).reduce((s, x) => s + x.tokens, 0);
+          return b.details
+            .filter((x) => x.agent === a && (scope.account === 'all' || x.account === scope.account))
+            .reduce((s, x) => s + x.tokens, 0);
         });
       }
     } else if (granularity === 'week') {
@@ -319,7 +396,9 @@ export function UsagePage() {
         seriesData[a] = cats.map((d) => {
           const b = filtered.byDay.get(d);
           if (!b) return 0;
-          return b.details.filter((x) => x.agent === a).reduce((s, x) => s + x.tokens, 0);
+          return b.details
+            .filter((x) => x.agent === a && (scope.account === 'all' || x.account === scope.account))
+            .reduce((s, x) => s + x.tokens, 0);
         });
       }
     } else if (granularity === 'month') {
@@ -329,7 +408,9 @@ export function UsagePage() {
         seriesData[a] = cats.map((ym) => {
           const b = filtered.byMonth.get(ym);
           if (!b) return 0;
-          return b.details.filter((x) => x.agent === a).reduce((s, x) => s + x.tokens, 0);
+          return b.details
+            .filter((x) => x.agent === a && (scope.account === 'all' || x.account === scope.account))
+            .reduce((s, x) => s + x.tokens, 0);
         });
       }
     } else {
@@ -339,7 +420,9 @@ export function UsagePage() {
         seriesData[a] = cats.map((y) => {
           const b = filtered.byYear.get(y);
           if (!b) return 0;
-          return b.details.filter((x) => x.agent === a).reduce((s, x) => s + x.tokens, 0);
+          return b.details
+            .filter((x) => x.agent === a && (scope.account === 'all' || x.account === scope.account))
+            .reduce((s, x) => s + x.tokens, 0);
         });
       }
     }
@@ -364,7 +447,7 @@ export function UsagePage() {
           const lines = (ps ?? []).map(
             (p) => `${p.seriesName}: ${fmtTok(p.value)} tok`,
           );
-          const detail = detailText(b, agent)
+          const detail = detailText(b, scope)
             .split('\n')
             .map((l) => `<div style="opacity:.75">${l}</div>`)
             .join('');
@@ -385,7 +468,7 @@ export function UsagePage() {
         splitLine: { lineStyle: { color: c.border, type: 'dashed' } },
       },
       series: agents.map((a) => ({
-        name: AGENT_LABEL[a] ?? a,
+        name: seriesName(a),
         type: 'bar' as const,
         stack: 'total',
         data: seriesData[a] ?? [],
@@ -393,7 +476,7 @@ export function UsagePage() {
         barMaxWidth: 32,
       })),
     } satisfies echarts.EChartsCoreOption;
-  }, [granularity, filtered, dayYm, monY, agent]);
+  }, [granularity, filtered, dayYm, monY, scope, accountLabel]);
 
   const granularityChip = (g: Granularity, label: string) => (
     <span
@@ -489,24 +572,42 @@ export function UsagePage() {
           曲线
         </span>
       </div>
-      <div className="mb-3 flex items-center" style={{ gap: 8 }}>
-        <b style={{ fontSize: 12, color: 'var(--color-text-2)' }}>Agent</b>
+      <div className="mb-3 flex items-center" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 12, color: 'var(--color-text-2)' }}>范围</b>
         {(
           [
-            ['all', '汇总'],
-            ['workbuddy', 'WorkBuddy'],
-            ['zcode', 'ZCode'],
-          ] as [AgentFilter, string][]
+            [{ agent: 'all', account: 'all' }, '汇总'],
+            [{ agent: 'workbuddy', account: 'all' }, 'WB 汇总'],
+            [{ agent: 'zcode', account: 'all' }, 'ZCode 汇总'],
+          ] as [Scope, string][]
         ).map(([v, label]) => (
           <span
-            key={v}
-            className={`chip ${agent === v ? (v === 'zcode' ? 'zc' : 'ok') : 'off'}`}
+            key={label}
+            className={`chip ${scopeEq(scope, v) ? (v.agent === 'zcode' ? 'zc' : 'ok') : 'off'}`}
             style={{ cursor: 'pointer', fontSize: 11.5, padding: '4px 12px' }}
-            onClick={() => setAgent(v)}
+            onClick={() => setScope(v)}
           >
             {label}
           </span>
         ))}
+        {accounts.length > 0 && (
+          <span style={{ color: 'var(--color-border)', margin: '0 2px' }}>|</span>
+        )}
+        {accounts.map((a) => {
+          const s: Scope = { agent: a.agent as AgentFilter, account: a.account };
+          const active = scopeEq(scope, s);
+          return (
+            <span
+              key={`${a.agent}:${a.account}`}
+              className={`chip ${active ? (a.agent === 'zcode' ? 'zc' : 'ok') : 'off'}`}
+              style={{ cursor: 'pointer', fontSize: 11.5, padding: '4px 12px' }}
+              title={`${AGENT_LABEL[a.agent] ?? a.agent} · ${a.calls} 次调用`}
+              onClick={() => setScope(s)}
+            >
+              {accountLabel(a.agent, a.account)}
+            </span>
+          );
+        })}
       </div>
 
       {error && (
@@ -529,7 +630,7 @@ export function UsagePage() {
       <div className="mb-3 grid grid-cols-4 gap-2.5">
         <div className="stat">
           <div className="k">
-            {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]} 合计
+            {scopeLabel} 合计
             <span className="chip ok" style={{ marginLeft: 2 }}>请求级真实</span>
           </div>
           <div className="v">{fmtTok(totals.all)}<small> tok</small></div>
@@ -579,7 +680,7 @@ export function UsagePage() {
                       key={y}
                       className="card hover-zoom"
                       style={{ padding: 12, cursor: 'pointer' }}
-                      title={detailText(b, agent)}
+                      title={detailText(b, scope)}
                       onClick={() => {
                         setMonY(Number(y));
                         setGranularity('month');
@@ -627,7 +728,7 @@ export function UsagePage() {
                     <div
                       key={date}
                       className="hover-zoom"
-                      title={detailText(b, agent)}
+                      title={detailText(b, scope)}
                       onClick={() => setSelectedDate(date)}
                       style={{
                         minHeight: 72,
@@ -680,7 +781,7 @@ export function UsagePage() {
                         cursor: 'pointer',
                         borderColor: b ? heatColor(b.tokens, maxOfMonth) : undefined,
                       }}
-                      title={detailText(b, agent)}
+                      title={detailText(b, scope)}
                       onClick={() => {
                         setDayYm(ym);
                         setGranularity('day');
@@ -735,7 +836,7 @@ export function UsagePage() {
                     <div
                       key={date}
                       className="hover-zoom"
-                      title={detailText(b, agent)}
+                      title={detailText(b, scope)}
                       style={{
                         minHeight: 64,
                         borderRadius: 10,
@@ -770,7 +871,7 @@ export function UsagePage() {
       {/* 当日 24h 曲线（点日格后展示） */}
       {granularity === 'day' && selectedDate && overview?.curve && overview.curve.length > 0 && (
         <div className="card" style={{ padding: 8, marginBottom: 12 }}>
-          <DayCurve overview={overview} date={selectedDate} />
+          <DayCurve overview={overview} date={selectedDate} scope={scope} accountLabel={accountLabel} />
         </div>
       )}
 
@@ -778,15 +879,15 @@ export function UsagePage() {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
-            按模型细分（Top 8 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]} · 低于 10 万 tok 不显示）
+            按模型细分（Top 8 · {scopeLabel} · 低于 10 万 tok 不显示）
           </div>
-          <ModelBars overview={overview} agent={agent} />
+          <ModelBars overview={overview} scope={scope} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 6 }}>
-            按模型占比（饼图 · {agent === 'all' ? '双 Agent' : AGENT_LABEL[agent]}）
+            按模型占比（饼图 · {scopeLabel}）
           </div>
-          <ModelPie overview={overview} agent={agent} />
+          <ModelPie overview={overview} scope={scope} />
         </div>
       </div>
 
@@ -798,26 +899,42 @@ export function UsagePage() {
   );
 }
 
-/** 当日 24h 曲线（overview.curve 驱动） */
-function DayCurve({ overview, date }: { overview: UsageOverview; date: string }) {
+/** 当日 24h 曲线（overview.curve 驱动，按范围筛选；按账号分组或按 Agent 聚合） */
+function DayCurve({
+  overview,
+  date,
+  scope,
+  accountLabel,
+}: {
+  overview: UsageOverview;
+  date: string;
+  scope: Scope;
+  accountLabel: (agent: string, account: string) => string;
+}) {
+  const byAccount = scope.account !== 'all';
   const buckets = new Map<string, number[]>();
   for (const p of overview.curve) {
-    const arr = buckets.get(p.agent) ?? new Array(48).fill(0);
-    if (p.bucket >= 0 && p.bucket < 48) arr[p.bucket] = p.tokens;
-    buckets.set(p.agent, arr);
+    if (!matchScope(p.agent, p.account, scope)) continue;
+    const key = byAccount ? `${p.agent}|${p.account}` : p.agent;
+    const arr = buckets.get(key) ?? new Array(48).fill(0);
+    if (p.bucket >= 0 && p.bucket < 48) arr[p.bucket] += p.tokens;
+    buckets.set(key, arr);
   }
   const ref = useEChart(() => {
     const c = themeColors();
-    const series = [...buckets.entries()].map(([a, arr]) => ({
-      name: AGENT_LABEL[a] ?? a,
-      type: 'line' as const,
-      smooth: true,
-      showSymbol: false,
-      data: arr,
-      lineStyle: { width: 2, color: agentColor(a) },
-      itemStyle: { color: agentColor(a) },
-      areaStyle: { opacity: 0.12 },
-    }));
+    const series = [...buckets.entries()].map(([key, arr]) => {
+      const [agent, account] = key.split('|');
+      return {
+        name: byAccount ? accountLabel(agent, account) : (AGENT_LABEL[agent] ?? agent),
+        type: 'line' as const,
+        smooth: true,
+        showSymbol: false,
+        data: arr,
+        lineStyle: { width: 2, color: agentColor(agent) },
+        itemStyle: { color: agentColor(agent) },
+        areaStyle: { opacity: 0.12 },
+      };
+    });
     return {
       backgroundColor: 'transparent',
       title: { text: `当日调用量分布 · ${date}（每 30min）`, left: 12, top: 8, textStyle: { color: c.text2, fontSize: 12, fontWeight: 700 } },
@@ -837,18 +954,18 @@ function DayCurve({ overview, date }: { overview: UsageOverview; date: string })
       },
       series,
     } satisfies echarts.EChartsCoreOption;
-  }, [overview, date]);
+  }, [overview, date, scope, accountLabel]);
   return <div ref={ref} style={{ width: '100%', height: 260 }} />;
 }
 
 /** 按模型细分（当前上下文 overview.models） */
-function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent: AgentFilter }) {
+function ModelBars({ overview, scope }: { overview: UsageOverview | null; scope: Scope }) {
   const models = useMemo(
     () =>
       (overview?.models ?? []).filter(
-        (m) => (agent === 'all' || m.agent === agent) && m.tokens >= MODEL_MIN_TOKENS,
+        (m) => matchScope(m.agent, m.account, scope) && m.tokens >= MODEL_MIN_TOKENS,
       ),
-    [overview, agent],
+    [overview, scope],
   );
   const ref = useEChart(() => {
     const c = themeColors();
@@ -895,13 +1012,13 @@ function ModelBars({ overview, agent }: { overview: UsageOverview | null; agent:
 }
 
 /** 按模型占比（环形饼图，与柱状同数据源；hover 显示 token 数） */
-function ModelPie({ overview, agent }: { overview: UsageOverview | null; agent: AgentFilter }) {
+function ModelPie({ overview, scope }: { overview: UsageOverview | null; scope: Scope }) {
   const models = useMemo(
     () =>
       (overview?.models ?? []).filter(
-        (m) => (agent === 'all' || m.agent === agent) && m.tokens >= MODEL_MIN_TOKENS,
+        (m) => matchScope(m.agent, m.account, scope) && m.tokens >= MODEL_MIN_TOKENS,
       ),
-    [overview, agent],
+    [overview, scope],
   );
   const ref = useEChart(() => {
     const c = themeColors();
