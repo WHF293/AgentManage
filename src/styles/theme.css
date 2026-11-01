@@ -152,6 +152,14 @@ body {
 .btn:hover {
   opacity: 0.88;
 }
+/* 禁用态必须可见：置灰 + 禁止光标，避免「看起来能点、点了没反应」 */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn:disabled:hover {
+  opacity: 0.4;
+}
 /* 卡片右上角纯 icon 操作键（编辑/删除，参考 stock-board 模型管理行的 pencil/trash） */
 .icon-btn {
   display: inline-flex;

@@ -239,29 +239,61 @@ fn resolve_creds(store: &Store) -> Res<Vec<WbCreds>> {
 
 // ─── 签到接口 ───
 
+/// 展开 reqwest 错误原因链：顶层 "error sending request" 不含真实原因，
+/// 底层才是 DNS / 连接拒绝 / TLS 等可定位信息
+pub fn net_err(e: reqwest::Error) -> String {
+    let mut msg = e.to_string();
+    let mut src = std::error::Error::source(&e);
+    while let Some(s) = src {
+        msg.push_str(&format!(" ← {s}"));
+        src = s.source();
+    }
+    msg
+}
+
 fn post_checkin(creds: &WbCreds, path: &str) -> Result<serde_json::Value, String> {
     let url = format!("https://{}{}", creds.domain, path);
-    let resp = reqwest::blocking::Client::builder()
+    let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
+        // 签到走固定国内域名，直连即达；显式禁用代理，避免 reqwest 默认读取
+        // 会话级 http_proxy/https_proxy 环境变量（终端里启动时常见）导致发送失败
+        .no_proxy()
         .build()
-        .map_err(|e| e.to_string())?
-        .post(&url)
-        .bearer_auth(&creds.token)
-        .header("X-User-Id", &creds.uid)
-        .header("Content-Type", "application/json")
-        .body("{}")
-        .send()
-        .map_err(|e| format!("请求失败: {e}"))?;
-    let status = resp.status();
-    let body: serde_json::Value = resp.json().unwrap_or(serde_json::Value::Null);
-    if !status.is_success() {
-        // 幂等语义：HTTP 4xx + code 10001 = 今日已签到
-        if body.get("code").and_then(|c| c.as_i64()) == Some(10001) {
-            return Ok(body);
+        .map_err(|e| e.to_string())?;
+    let mut last_err = String::new();
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(800));
         }
-        return Err(format!("接口返回 {status}"));
+        let resp = client
+            .post(&url)
+            .bearer_auth(&creds.token)
+            .header("X-User-Id", &creds.uid)
+            .header("Content-Type", "application/json")
+            .body("{}")
+            .send();
+        match resp {
+            Ok(resp) => {
+                let status = resp.status();
+                let body: serde_json::Value = resp.json().unwrap_or(serde_json::Value::Null);
+                if !status.is_success() {
+                    // 幂等语义：HTTP 4xx + code 10001 = 今日已签到
+                    if body.get("code").and_then(|c| c.as_i64()) == Some(10001) {
+                        return Ok(body);
+                    }
+                    // 5xx 瞬时故障：重试一次
+                    if status.is_server_error() {
+                        last_err = format!("接口返回 {status}");
+                        continue;
+                    }
+                    return Err(format!("接口返回 {status}"));
+                }
+                return Ok(body);
+            }
+            Err(e) => last_err = format!("请求失败: {}", net_err(e)),
+        }
     }
-    Ok(body)
+    Err(last_err)
 }
 
 /// 兼容多种响应形态：code 在顶层或 data 里，布尔字段驼峰/下划线两种

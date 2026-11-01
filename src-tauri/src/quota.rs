@@ -102,13 +102,15 @@ fn fetch_zcode_quota() -> Res<ZcodeQuota> {
     let url = "https://open.bigmodel.cn/api/monitor/usage/quota/limit";
     let resp = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
+        // 固定国内域名直连即达；禁用代理避免继承会话级 proxy 环境变量导致发送失败
+        .no_proxy()
         .build()
         .map_err(|e| e.to_string())?
         .get(url)
         .bearer_auth(&key)
         .header("Accept", "application/json")
         .send()
-        .map_err(|e| format!("请求官方额度接口失败: {e}"))?;
+        .map_err(|e| format!("请求官方额度接口失败: {}", crate::checkin::net_err(e)))?;
     if !resp.status().is_success() {
         return Err(format!("官方额度接口返回 {}", resp.status()));
     }

@@ -427,6 +427,10 @@ export function AccountsPage() {
       if (r.ok) {
         const n = r.targets.reduce((acc, t) => acc + t.results.filter((x) => x.status === 'copied').length, 0);
         toast(`已复制 ${n} 份会话${r.restarted ? '，WorkBuddy 已重新启动' : ''}`);
+        // 成功即自动关闭弹窗（失败才留在弹窗内看报告）
+        setCopyDlg(null);
+        setCopyReport(null);
+        await refresh();
       } else if (!r.need_kill && r.error) {
         toast(r.error, 'err');
       }
@@ -1325,7 +1329,12 @@ export function AccountsPage() {
                 {copyReport?.ok ? '关闭' : '取消'}
               </button>
               {!copyReport?.ok && (
-                <button className="btn p" onClick={() => void doCopySessions()} disabled={copyBusy}>
+                <button
+                  className="btn p"
+                  onClick={() => void doCopySessions()}
+                  disabled={copyBusy || (data?.process_running && !copyKillOn)}
+                  title={data?.process_running && !copyKillOn ? '请先勾选「强制结束 WorkBuddy」' : undefined}
+                >
                   {copyBusy ? (
                     <>
                       <span className="spinning" style={{ display: 'inline-block' }}>↻</span> 复制中…
