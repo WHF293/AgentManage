@@ -388,6 +388,7 @@ pub struct SlotRenameInput {
 
 #[tauri::command]
 pub fn wb_rename_slot(state: State<'_, Store>, input: SlotRenameInput) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     let label = input.label.trim();
     if label.is_empty() {
         return Err("槽位名称不能为空".into());
@@ -405,6 +406,7 @@ pub fn wb_rename_slot(state: State<'_, Store>, input: SlotRenameInput) -> Result
 
 #[tauri::command]
 pub fn wb_save_slot(state: State<'_, Store>, label: String) -> Result<WbSlot, String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     save_slot(&state, &label)
 }
 
@@ -417,6 +419,7 @@ pub struct SwitchInput {
 
 #[tauri::command]
 pub fn wb_switch(state: State<'_, Store>, input: SwitchInput) -> Result<SwitchReport, String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     if process_running() {
         if !input.confirm_kill {
             let mut r = SwitchReport::default();
@@ -433,10 +436,12 @@ pub fn wb_switch(state: State<'_, Store>, input: SwitchInput) -> Result<SwitchRe
 
 #[tauri::command]
 pub fn wb_import_legacy(state: State<'_, Store>) -> Result<usize, String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     import_legacy(&state)
 }
 
 #[tauri::command]
 pub fn wb_delete_slot(state: State<'_, Store>, slot: String) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     delete_slot(&state, &slot)
 }

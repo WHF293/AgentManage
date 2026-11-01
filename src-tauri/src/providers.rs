@@ -514,7 +514,14 @@ pub struct ProvidersOverview {
 }
 
 #[tauri::command]
-pub fn providers_overview() -> Result<ProvidersOverview, String> {
+pub fn providers_overview(state: tauri::State<'_, crate::store::Store>) -> Result<ProvidersOverview, String> {
+    // ZCode 插件停用：Model 岛主存储在 ZCode v2/config.json，停用即空态（前端提示去 Plugin 岛开启）
+    if !crate::plugins::enabled_ids(&state)?.iter().any(|id| id == "zcode") {
+        return Ok(ProvidersOverview {
+            providers: Vec::new(),
+            selected_keys: Map::new(),
+        });
+    }
     Ok(ProvidersOverview {
         providers: read_zcode_providers()?,
         selected_keys: read_selected_keys()?,
@@ -551,13 +558,17 @@ pub struct FetchModelsInput {
 }
 
 #[tauri::command]
-pub fn provider_fetch_models(input: FetchModelsInput) -> Result<crate::modelfetch::FetchResult, String> {
+pub fn provider_fetch_models(
+    state: tauri::State<'_, crate::store::Store>,
+    input: FetchModelsInput,
+) -> Result<crate::modelfetch::FetchResult, String> {
     if !KINDS.contains(&input.kind.as_str()) {
         return Err(format!(
             "未知 kind：{}（支持 anthropic / openai-compatible）",
             input.kind
         ));
     }
+    crate::plugins::require_enabled(&state, "zcode")?;
     let key = resolve_api_key(&input.id, input.api_key.as_deref())?;
     Ok(crate::modelfetch::fetch_models(
         &input.kind,
@@ -579,14 +590,24 @@ pub struct SaveProviderInput {
 
 /// 保存 provider：直写 ZCode v2/config.json + openai-compatible 写穿 WB models.json（key 仅在显式传入时更新）
 #[tauri::command]
-pub fn provider_save(input: SaveProviderInput) -> Result<String, String> {
+pub fn provider_save(
+    state: tauri::State<'_, crate::store::Store>,
+    input: SaveProviderInput,
+) -> Result<String, String> {
     if !KINDS.contains(&input.kind.as_str()) {
         return Err(format!("未知 kind：{}", input.kind));
     }
+    // 插件门控：ZCode 是主存储必须启用；WB 写穿仅在 WB 插件启用时执行
+    crate::plugins::require_enabled(&state, "zcode")?;
+    let wb_enabled = crate::plugins::enabled_ids(&state)?.iter().any(|id| id == "workbuddy");
     let id = input.id.clone();
     let base_url = input.base_url.clone();
     // WB 侧写穿要拿真 key：显式传入优先，否则从 ZCode 目标文件回读（不出 Rust 层）
-    let wb_key = resolve_api_key(&id, input.api_key.as_deref()).ok();
+    let wb_key = if wb_enabled {
+        resolve_api_key(&id, input.api_key.as_deref()).ok()
+    } else {
+        None
+    };
     write_zcode_provider(&ProviderWrite {
         id,
         name: input.name,
@@ -595,6 +616,9 @@ pub fn provider_save(input: SaveProviderInput) -> Result<String, String> {
         api_key: input.api_key,
         reset_models_with: input.models.clone(),
     })?;
+    if !wb_enabled {
+        return Ok("已写入 ZCode · WB 插件未启用，未写穿 models.json".into());
+    }
     if input.kind != "openai-compatible" {
         return Ok("已写入 ZCode · WB 侧仅支持 OpenAI 兼容接入点，本次未同步".into());
     }
@@ -611,9 +635,19 @@ pub fn provider_save(input: SaveProviderInput) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn provider_delete(id: String) -> Result<String, String> {
+pub fn provider_delete(
+    state: tauri::State<'_, crate::store::Store>,
+    id: String,
+) -> Result<String, String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     delete_zcode_provider(&id)?;
-    let n = remove_wb_provider(&id).unwrap_or(0);
+    // WB 侧清理仅在 WB 插件启用时执行
+    let wb_enabled = crate::plugins::enabled_ids(&state)?.iter().any(|x| x == "workbuddy");
+    let n = if wb_enabled {
+        remove_wb_provider(&id).unwrap_or(0)
+    } else {
+        0
+    };
     Ok(if n > 0 {
         format!("已从 ZCode 删除 · WB 侧同步清理 {n} 条")
     } else {
@@ -622,6 +656,11 @@ pub fn provider_delete(id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn provider_set_default(family: String, key: String) -> Result<(), String> {
+pub fn provider_set_default(
+    state: tauri::State<'_, crate::store::Store>,
+    family: String,
+    key: String,
+) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     set_default_provider(&family, &key)
 }

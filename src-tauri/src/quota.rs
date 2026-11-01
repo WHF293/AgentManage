@@ -167,7 +167,8 @@ fn fetch_zcode_quota() -> Res<ZcodeQuota> {
 }
 
 #[tauri::command]
-pub async fn zcode_quota() -> Result<ZcodeQuota, String> {
+pub async fn zcode_quota(state: tauri::State<'_, Store>) -> Result<ZcodeQuota, String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     tauri::async_runtime::spawn_blocking(fetch_zcode_quota)
         .await
         .map_err(|e| format!("任务调度失败: {e}"))?
@@ -214,6 +215,7 @@ pub fn wb_credit_summary_inner(store: &Store) -> Res<WbCreditSummary> {
 
 #[tauri::command]
 pub async fn wb_credit_summary(state: State<'_, Store>) -> Result<WbCreditSummary, String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     wb_credit_summary_inner(&state)
 }
 
@@ -282,6 +284,7 @@ pub struct WbCreditTotalInput {
 
 #[tauri::command]
 pub async fn wb_credit_set_total(state: State<'_, Store>, input: WbCreditTotalInput) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "workbuddy")?;
     let _ = &state;
     let f = wb_credit_total_file();
     std::fs::create_dir_all(keys_dir()).map_err(|e| e.to_string())?;

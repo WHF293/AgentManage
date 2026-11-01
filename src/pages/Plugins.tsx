@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { pluginList, pluginToggle, type PluginInfo } from '../api';
+import { refreshPlugins } from '../stores/plugins';
 import { agentMeta } from '../agents';
 import { PageHeader } from '../common/components/PageHeader';
 
@@ -81,9 +82,10 @@ export function PluginsPage() {
     setMessage(null);
     try {
       await pluginToggle(agent, enabled);
+      refreshPlugins();
       const meta = agentMeta(agent);
       setMessage(
-        `${meta.name} 插件已${enabled ? '启用' : '停用'}（已持久化；Skills / MCP / Usage 等岛只对启用插件生效）`,
+        `${meta.name} 插件已${enabled ? '启用' : '停用'}（已持久化；Account / Model / Memory 等岛已同步置灰或隐藏停用端）`,
       );
       await refresh();
     } catch (e) {

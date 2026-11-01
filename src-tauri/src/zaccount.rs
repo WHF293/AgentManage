@@ -113,6 +113,8 @@ pub async fn zcode_overview(state: State<'_, Store>) -> Result<ZcodeAccountOverv
 /// 启动 ZCode 桌面（CLI 每次启动重读凭据，启动即使用当前登录态/已恢复槽位）
 #[tauri::command]
 pub async fn zcode_launch() -> Result<(), String> {
+    // 插件门控需读 DB：借全局 Store 不可行（此命令无 State），用独立连接判定
+    gate_zcode_plugin()?;
     if zcode_running() {
         return Err("ZCode 已在运行".into());
     }
@@ -127,8 +129,29 @@ pub async fn zcode_launch() -> Result<(), String> {
 
 use tauri::State;
 
+/// ZCode 插件门控（无 State 的命令用：独立短连接读 plugin_state）
+fn gate_zcode_plugin() -> Result<(), String> {
+    let path = store::db_path();
+    if !path.exists() {
+        return Ok(()); // 首次运行尚未建库，不拦截
+    }
+    let conn = rusqlite::Connection::open(&path).map_err(|e| e.to_string())?;
+    let enabled: Option<i64> = conn
+        .query_row(
+            "SELECT enabled FROM plugin_state WHERE agent = 'zcode'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    match enabled {
+        Some(0) => Err("ZCode 插件已停用（到 Plugin 岛开启后可用）".into()),
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub async fn zcode_save_slot(state: State<'_, Store>, label: String) -> Result<ZcodeSlot, String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     let src = cred_file();
     if !src.is_file() {
         return Err("未找到 ~/.zcode/v2/credentials.json（ZCode 未登录？）".into());
@@ -173,6 +196,7 @@ pub async fn zcode_switch(
     input: ZcodeSwitchInput,
 ) -> Result<ZcodeSwitchReport, String> {
     let _ = state; // 占位：与 WB 切换不同，无 DB 写操作；保留结构以便扩展
+    crate::plugins::require_enabled(&state, "zcode")?;
     let mut steps = Vec::new();
     let slot_id = input.slot_id;
     let src = slot_file(&slot_id);
@@ -244,6 +268,7 @@ pub struct ZcodeSwitchInput {
 
 #[tauri::command]
 pub async fn zcode_delete_slot(state: State<'_, Store>, slot: String) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     state.with(|conn| {
         conn.execute("DELETE FROM zcode_slots WHERE id = ?1", rusqlite::params![slot])
             .map_err(|e| e.to_string())?;
@@ -263,6 +288,7 @@ pub async fn zcode_rename_slot(
     state: State<'_, Store>,
     input: crate::account::SlotRenameInput,
 ) -> Result<(), String> {
+    crate::plugins::require_enabled(&state, "zcode")?;
     let label = input.label.trim();
     if label.is_empty() {
         return Err("槽位名称不能为空".into());

@@ -141,6 +141,22 @@ pub fn enabled_ids(store: &Store) -> Res<Vec<String>> {
     })
 }
 
+/// 门控断言：agent 插件必须已启用，否则报错（各岛写操作与「唤起 agent」类命令的统一入口）。
+/// 读操作（总览/列表）不强制走这里 —— 停用端的数据仍可读出用于置灰展示。
+pub fn require_enabled(store: &Store, agent: &str) -> Result<(), String> {
+    let Some(a) = adapters::by_id(agent) else {
+        return Err(format!("未知适配器：{agent}"));
+    };
+    if enabled_ids(store)?.iter().any(|id| id == agent) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} 插件已停用（到 Plugin 岛开启后可用）",
+            a.display_name()
+        ))
+    }
+}
+
 // ─── Tauri commands（Plugin 岛） ───
 
 #[derive(Serialize)]

@@ -11,6 +11,7 @@ import {
 } from '../api';
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
+import { isAgentEnabled, useEnabledAgents } from '../stores/plugins';
 import { ArchHelp } from '../common/components/ArchHelp';
 import modelsArch from '../assets/arch/models.svg';
 
@@ -396,6 +397,11 @@ export function ModelsPage() {
   const providers = all.filter((p) => !p.builtin); // 内置档位（ZCode 官方注册表 builtin:*）不上屏，只显示手动添加的
   const hiddenCount = all.length - providers.length;
 
+  // 插件门控：ZCode 停用 = Model 岛主存储不可用，全页置灰只读；WB 停用隐藏写穿状态 chip
+  const enabledIds = useEnabledAgents();
+  const zcOff = !isAgentEnabled(enabledIds, 'zcode');
+  const wbOff = !isAgentEnabled(enabledIds, 'workbuddy');
+
   return (
     <div>
       <PageHeader
@@ -403,7 +409,24 @@ export function ModelsPage() {
         sub="一次配置 → 直写 ZCode v2/config.json + WB models.json · API Key 只存目标文件不入库"
       />
 
-      <div className="mb-3 flex items-center" style={{ gap: 8 }}>
+      {zcOff && (
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            marginBottom: 12,
+            borderColor: 'var(--color-warn, #d9a441)',
+            fontSize: 12,
+          }}
+        >
+          <b>ZCode 插件已停用</b>
+          <span style={{ color: 'var(--color-text-2)' }}>
+            {' '}—— Model 岛的主存储是 ZCode v2/config.json，停用期间列表不可读写。到 Plugin 岛开启后恢复。
+          </span>
+        </div>
+      )}
+
+      <div className="mb-3 flex items-center" style={{ gap: 8, ...(zcOff ? { opacity: 0.45, pointerEvents: 'none' } : {}) }}>
         <span style={{ flex: 1 }} />
         {message && <span className="chip ok">{message}</span>}
         <button className="btn p" onClick={() => setCreating(true)}>⊕ 新增 Provider</button>
@@ -425,7 +448,7 @@ export function ModelsPage() {
         </div>
       )}
 
-      <div className="item-grid">
+      <div className="item-grid" style={zcOff ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
         {providers.map((p) => {
           const selectedEntry = Object.entries(data?.selected_keys ?? {}).find(([, v]) =>
             v.endsWith(p.id),
@@ -479,16 +502,17 @@ export function ModelsPage() {
               </div>
               <div className="card-actions">
                 <span className={`chip ${p.kind === 'anthropic' ? 'ok' : 'off'}`}>{p.kind}</span>
-                {p.kind === 'openai-compatible' ? (
-                  <span
-                    className={`chip ${p.models.length > 0 && p.wb_models.length === p.models.length ? 'ok' : 'warn'}`}
-                    title={`WB models.json 已同步 ${p.wb_models.length}/${p.models.length}（热加载，WB 模型选择器「自定义」分区可见）`}
-                  >
-                    WB {p.wb_models.length}/{p.models.length}
-                  </span>
-                ) : (
-                  <span className="chip off" title="WB 自定义模型仅支持 OpenAI 兼容接入点，anthropic 型不写穿">WB·—</span>
-                )}
+                {!wbOff &&
+                  (p.kind === 'openai-compatible' ? (
+                    <span
+                      className={`chip ${p.models.length > 0 && p.wb_models.length === p.models.length ? 'ok' : 'warn'}`}
+                      title={`WB models.json 已同步 ${p.wb_models.length}/${p.models.length}（热加载，WB 模型选择器「自定义」分区可见）`}
+                    >
+                      WB {p.wb_models.length}/{p.models.length}
+                    </span>
+                  ) : (
+                    <span className="chip off" title="WB 自定义模型仅支持 OpenAI 兼容接入点，anthropic 型不写穿">WB·—</span>
+                  ))}
                 <span className="chip off">Key{p.has_api_key ? '已配置' : '未配置'}</span>
                 <span className="chip warn" style={{ cursor: 'pointer' }} onClick={() => setDefault(p)}>设默认</span>
               </div>

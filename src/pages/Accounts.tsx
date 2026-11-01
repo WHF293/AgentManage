@@ -27,6 +27,7 @@ import {
 import { PageHeader } from '../common/components/PageHeader';
 import { ConfirmDialog, InputDialog } from '../common/components/ConfirmDialog';
 import { toast } from '../stores/ui';
+import { isAgentEnabled, useEnabledAgents } from '../stores/plugins';
 import { ArchHelp } from '../common/components/ArchHelp';
 import accountArch from '../assets/arch/account.svg';
 
@@ -140,6 +141,12 @@ export function AccountsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 插件门控：停用端的分组置灰（槽位仅展示不可操作，切换/启动/保存等全部禁用）
+  const enabledIds = useEnabledAgents();
+  const wbOff = !isAgentEnabled(enabledIds, 'workbuddy');
+  const zcOff = !isAgentEnabled(enabledIds, 'zcode');
+  const offStyle = { opacity: 0.45, pointerEvents: 'none' as const };
+
   const refresh = useCallback(async (): Promise<WbOverview | null> => {
     setError(null);
     try {
@@ -181,11 +188,19 @@ export function AccountsPage() {
     }
   }, []);
 
+  // ZCode 插件停用时额度查询属「唤起 agent 工具」，直接跳过
+  useEffect(() => {
+    if (enabledIds !== null && enabledIds.includes('zcode') && zcQuotaData === null && zcQuotaErr === null) {
+      void refreshZcQuota();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledIds]);
+
   useEffect(() => {
     void refresh();
     void refreshCredit();
     void refreshZc();
-    void refreshZcQuota();
+    if (isAgentEnabled(enabledIds, 'zcode')) void refreshZcQuota();
     // WB 侧账号/进程可能随时变化（手动切号、启动退出），轮询保持实时
     const t = setInterval(() => {
       void refresh();
@@ -193,7 +208,8 @@ export function AccountsPage() {
       void refreshZc();
     }, 10_000);
     return () => clearInterval(t);
-  }, [refresh, refreshCredit, refreshZc, refreshZcQuota]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh, refreshCredit, refreshZc, refreshZcQuota, enabledIds]);
 
   const manualRefresh = async () => {
     setRefreshing(true);
@@ -564,12 +580,13 @@ export function AccountsPage() {
       <div className="flex items-center" style={{ gap: 8, margin: '4px 0 8px', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13.5, color: 'var(--color-primary)' }}>WorkBuddy</b>
         <span className="chip ok">多账号槽位</span>
+        {wbOff && <span className="chip warn" title="到 Plugin 岛开启 WorkBuddy 插件后可操作">插件已停用 · 仅展示</span>}
         <span style={{ flex: 1 }} />
-        <button className="btn gh" onClick={importLegacy} disabled={busy}>⇪ 导入旧槽位</button>
-        <button className="btn p" onClick={() => setNaming(true)} disabled={busy}>
+        <button className="btn gh" onClick={importLegacy} disabled={busy || wbOff}>⇪ 导入旧槽位</button>
+        <button className="btn p" onClick={() => setNaming(true)} disabled={busy || wbOff}>
           ⤓ 保存当前登录为槽位
         </button>
-        <button className="btn gh" onClick={() => setEditingTotal(true)} disabled={busy}>
+        <button className="btn gh" onClick={() => setEditingTotal(true)} disabled={busy || wbOff}>
           {credit && credit.monthly_total > 0 ? '修改总额度' : '设置每月总额度'}
         </button>
         {wbSlots.length > 1 && (
@@ -603,8 +620,8 @@ export function AccountsPage() {
         </div>
       )}
 
-      {/* WB 槽位卡片：随展开/收起动画整体收放（收起只留分组状态条与操作按钮） */}
-      <div className="grid grid-cols-2 gap-2.5" style={{ marginBottom: 20 }}>
+      {/* WB 槽位卡片：随展开/收起动画整体收放（收起只留分组状态条与操作按钮）；插件停用整体置灰 */}
+      <div className="grid grid-cols-2 gap-2.5" style={{ marginBottom: 20, ...(wbOff ? offStyle : {}) }}>
         {wbSlots.length === 0 ? (
           <div
             className="card"
@@ -625,11 +642,16 @@ export function AccountsPage() {
       <div className="flex items-center" style={{ gap: 8, margin: '4px 0 8px', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13.5, color: '#4AA3DF' }}>ZCode</b>
         <span className="chip zc">快速切号</span>
+        {zcOff && <span className="chip warn" title="到 Plugin 岛开启 ZCode 插件后可操作">插件已停用 · 仅展示</span>}
         <span style={{ flex: 1 }} />
-        <button className="btn gh" onClick={() => void refreshZcQuota()} disabled={zcQuotaLoading}>
+        <button
+          className="btn gh"
+          onClick={() => void refreshZcQuota()}
+          disabled={zcQuotaLoading || zcOff}
+        >
           <span className={zcQuotaLoading ? 'spinning' : ''} style={{ display: 'inline-block' }}>↻</span> 刷新额度
         </button>
-        <button className="btn p" onClick={() => setZcNaming(true)} disabled={busy}>
+        <button className="btn p" onClick={() => setZcNaming(true)} disabled={busy || zcOff}>
           ⤓ 保存当前登录为槽位
         </button>
         {zcSlots.length > 1 && (
@@ -663,8 +685,8 @@ export function AccountsPage() {
         </div>
       )}
 
-      {/* ZCode 槽位卡片：随展开/收起动画整体收放（收起只留分组状态条与操作按钮） */}
-      <div className="grid grid-cols-2 gap-2.5">
+      {/* ZCode 槽位卡片：随展开/收起动画整体收放（收起只留分组状态条与操作按钮）；插件停用整体置灰 */}
+      <div className="grid grid-cols-2 gap-2.5" style={zcOff ? offStyle : undefined}>
         {zcSlots.length === 0 ? (
           <div
             className="card"

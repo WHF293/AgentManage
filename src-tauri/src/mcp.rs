@@ -521,6 +521,7 @@ pub fn mcp_toggle(
     if adapters::by_id(&agent).is_none() {
         return Err(format!("未知 agent：{agent}"));
     }
+    plugins::require_enabled(&state, &agent)?;
     state.with(|conn| {
         toggle_enabled(conn, &name, &agent, enabled)?;
         store::log_op(conn, "mcp.toggle", &name, json!({ "agent": agent, "enabled": enabled }));

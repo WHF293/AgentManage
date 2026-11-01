@@ -79,7 +79,7 @@ function GlobalMemory() {
     try {
       const steps = await memoryGlobalUnify();
       setUnifySteps(steps);
-      toast('全局记忆已统一：双端共写 ~/.agenthub/MEMORY.md');
+      toast('全局记忆已统一：各启用端共写 ~/.agenthub/MEMORY.md（详见步骤日志）');
       await loadList();
     } catch (e) {
       setError(String(e));
