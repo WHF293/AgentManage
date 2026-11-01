@@ -34,7 +34,7 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-type Granularity = 'day' | 'week' | 'month' | 'year';
+type Granularity = 'day' | 'week' | 'month' | 'year' | 'all';
 type ViewMode = 'calendar' | 'chart';
 type AgentFilter = 'all' | 'workbuddy' | 'zcode';
 /** 范围筛选：agent 维度 + 账号维度（account='all' 表示该 Agent 全部账号） */
@@ -401,9 +401,13 @@ export function UsagePage() {
             .reduce((s, x) => s + x.tokens, 0);
         });
       }
-    } else if (granularity === 'month') {
-      cats = Array.from({ length: 12 }, (_, i) => `${monY}-${String(i + 1).padStart(2, '0')}`);
-      title = `按月用量 · ${monY}`;
+    } else if (granularity === 'month' || granularity === 'all') {
+      // 月：'month' 为当年 12 个月；'all' 为全历史出现的每一个月
+      cats =
+        granularity === 'month'
+          ? Array.from({ length: 12 }, (_, i) => `${monY}-${String(i + 1).padStart(2, '0')}`)
+          : [...filtered.byMonth.keys()].sort();
+      title = granularity === 'month' ? `按月用量 · ${monY}` : '按月用量 · 全部历史';
       for (const a of agents) {
         seriesData[a] = cats.map((ym) => {
           const b = filtered.byMonth.get(ym);
@@ -413,7 +417,7 @@ export function UsagePage() {
             .reduce((s, x) => s + x.tokens, 0);
         });
       }
-    } else {
+    } else if (granularity === 'year') {
       cats = [...filtered.byYear.keys()].sort();
       title = '按年用量';
       for (const a of agents) {
@@ -441,9 +445,9 @@ export function UsagePage() {
           const b =
             granularity === 'day'
               ? filtered.byDay.get(key)
-              : granularity === 'month'
-                ? filtered.byMonth.get(key)
-                : filtered.byYear.get(key);
+              : granularity === 'year'
+                ? filtered.byYear.get(key)
+                : filtered.byMonth.get(key);
           const lines = (ps ?? []).map(
             (p) => `${p.seriesName}: ${fmtTok(p.value)} tok`,
           );
@@ -458,7 +462,9 @@ export function UsagePage() {
       grid: { left: 56, right: 20, top: 44, bottom: 28 },
       xAxis: {
         type: 'category',
-        data: cats.map((x) => (granularity === 'day' ? x.slice(5) : x)),
+        data: cats.map((x) =>
+          granularity === 'day' ? x.slice(5) : granularity === 'all' ? x.slice(2) : x,
+        ),
         axisLabel: { color: c.text3 },
         axisLine: { lineStyle: { color: c.border } },
       },
@@ -496,7 +502,9 @@ export function UsagePage() {
         ? `${weekStart.slice(5)} ~ ${shiftDate(weekStart, 6).slice(5)}`
         : granularity === 'month'
           ? String(monY)
-          : '全部年份';
+          : granularity === 'year'
+            ? '全部年份'
+            : '全部历史';
 
   const navShift = (delta: number) => {
     if (granularity === 'day') setDayYm(shiftMonth(dayYm, delta));
@@ -536,7 +544,8 @@ export function UsagePage() {
         {granularityChip('week', '周')}
         {granularityChip('month', '月')}
         {granularityChip('year', '年')}
-        {granularity !== 'year' && (
+        {granularityChip('all', '全部')}
+        {granularity !== 'year' && granularity !== 'all' && (
           <>
             <button className="btn gh" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => navShift(-1)}>
               ‹
@@ -700,6 +709,69 @@ export function UsagePage() {
                   );
                 })}
               </div>
+            </>
+          )}
+
+          {/* 全部：逐年月历网格（历史全量） */}
+          {granularity === 'all' && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text-2)', marginBottom: 8 }}>
+                全部历史 · 逐年月历 · 点击月份下钻到日历
+              </div>
+              {[...years].reverse().map((y) => {
+                const maxOfYearAll = Math.max(
+                  1,
+                  ...Array.from({ length: 12 }, (_, i) =>
+                    filtered.byMonth.get(`${y}-${String(i + 1).padStart(2, '0')}`)?.tokens ?? 0,
+                  ),
+                );
+                return (
+                  <div key={y} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, margin: '2px 0 6px', color: 'var(--color-text-2)' }}>
+                      {y} 年
+                    </div>
+                    <div className="grid grid-cols-4 gap-2.5">
+                      {Array.from({ length: 12 }, (_, i) => {
+                        const ym = `${y}-${String(i + 1).padStart(2, '0')}`;
+                        const b = filtered.byMonth.get(ym);
+                        return (
+                          <div
+                            key={ym}
+                            className="card hover-zoom"
+                            style={{
+                              padding: 12,
+                              cursor: b ? 'pointer' : 'default',
+                              opacity: b ? 1 : 0.45,
+                              borderColor: b ? heatColor(b.tokens, maxOfYearAll) : undefined,
+                            }}
+                            title={detailText(b, scope)}
+                            onClick={
+                              b
+                                ? () => {
+                                    setDayYm(ym);
+                                    setMonY(Number(y));
+                                    setGranularity('day');
+                                  }
+                                : undefined
+                            }
+                          >
+                            <div className="flex items-center justify-between">
+                              <b style={{ fontSize: 13 }}>{ym}</b>
+                              <span className="chip off">{b?.calls ?? 0} 次</span>
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 800, fontFamily: 'Consolas, monospace', marginTop: 4 }}>
+                              {b ? fmtTok(b.tokens) : '—'}
+                            </div>
+                            <div className="bar" style={{ marginTop: 6 }}>
+                              <i style={{ width: `${((b?.tokens ?? 0) / maxOfYearAll) * 100}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
 
