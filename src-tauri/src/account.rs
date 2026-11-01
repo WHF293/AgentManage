@@ -15,7 +15,7 @@ use crate::fsutil::{self, Res};
 use crate::store::{self, Store};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const WB_EXE: &str = r"D:\Application\workbuddy\WorkBuddy.exe";
+pub const WB_EXE: &str = r"D:\Application\workbuddy\WorkBuddy.exe";
 
 pub fn slots_dir() -> PathBuf {
     store::hub_dir().join("slots")

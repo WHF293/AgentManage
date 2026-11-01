@@ -127,8 +127,11 @@ src-tauri/src/
    本版本 IPC 对 snake/camel 大小写映射不稳（踩过 `missing required key base_url`）。
 3. **写目标文件三步**：备份到 `~/.agenthub/backups/<域>-<时间戳>/` → 原子写（tmp+rename）→
    JSON 可解析校验；失败回滚。MCP 是合并式写入（只覆盖托管字段，timeout/headers 等非托管字段保留）。
-4. **隐私红线**：WB auth 文件只做文件级复制永不读内容；usage 日志只取 usage/元数据字段，
-   request.messages / response.text 正文永不入库；API Key 只存 ZCode 目标文件、不落 AgentHub 库。
+4. **隐私红线**：WB auth 文件只做文件级复制永不读内容 —— **唯一例外**：checkin.rs 每日签到
+   需在内存中解密 accessToken（atRestSecretKey 经 ELECTRON_RUN_AS_NODE 调 WB 自身取回，
+   AES-256-GCM + 固定 AAD；token/密钥只存内存，永不落库/写盘/写日志/回传前端）；
+   usage 日志只取 usage/元数据字段，request.messages / response.text 正文永不入库；
+   API Key 只存 ZCode 目标文件、不落 AgentHub 库。
 5. **用量数据源（实测定版，勿回退）**：
    - ZCode：`~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表全表扫描（SUM(input)=18.87 亿 ≈
      官方 18.9 亿；request_id = 主键 id 幂等去重）。rollout jsonl 只剩近期文件，已废弃，

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
+  wbCheckinAutoGet,
+  wbCheckinAutoSet,
+  wbCheckinClaim,
+  wbCheckinStatus,
   wbCreditByAccount,
+  wbCreditSetBalance,
   wbCreditSetTotal,
   wbCreditSummary,
   wbDeleteSlot,
@@ -18,6 +23,8 @@ import {
   zcodeSwitch,
   type SwitchReport,
   type WbAccountCredit,
+  type WbCheckinResult,
+  type WbCheckinStatus,
   type WbCreditSummary,
   type WbOverview,
   type ZcodeAccountOverview,
@@ -36,6 +43,8 @@ type WbConfirmState =
   | { kind: 'delete'; slotId: string; label: string }
   | null;
 type ZcConfirmState = { kind: 'switch' | 'delete'; slotId: string; label: string } | null;
+/** 积分编辑：目标槽位 + 当前余额（null = 从未设置） */
+type BalanceEditState = { uid: string; label: string; balance: number | null } | null;
 
 const pctColor = (pct: number) =>
   pct > 80 ? 'var(--color-danger)' : pct > 50 ? 'var(--color-warn, #d9a441)' : 'var(--color-primary)';
@@ -114,6 +123,11 @@ export function AccountsPage() {
   const [credit, setCredit] = useState<WbCreditSummary | null>(null);
   // 按账户（uid）积分用量：WB 槽位卡片【当日使用 / 账户剩余】
   const [creditAcct, setCreditAcct] = useState<WbAccountCredit[]>([]);
+  // 每日签到状态（uid → 今日是否已领）；不在 10s 轮询里，切号/手动刷新时查询
+  const [checkins, setCheckins] = useState<WbCheckinStatus[]>([]);
+  const [autoCheckin, setAutoCheckin] = useState(true);
+  const [claiming, setClaiming] = useState<string | null>(null);
+  const [editingBalance, setEditingBalance] = useState<BalanceEditState>(null);
   const [confirm, setConfirm] = useState<WbConfirmState>(null);
   const [naming, setNaming] = useState(false);
   const [editingTotal, setEditingTotal] = useState(false);
@@ -166,6 +180,47 @@ export function AccountsPage() {
     }
   }, []);
 
+  /** 签到状态查询（登录态文件 + 槽位逐账号；挂载/切号/手动刷新时调用） */
+  const refreshCheckins = useCallback(async () => {
+    try {
+      setCheckins(await wbCheckinStatus());
+    } catch {
+      /* 浏览器预览等场景忽略 */
+    }
+  }, []);
+
+  /** 手动领取某账号每日积分 */
+  const doClaim = useCallback(
+    async (uid: string) => {
+      setClaiming(uid);
+      try {
+        const r: WbCheckinResult = await wbCheckinClaim(uid);
+        if (r.status === 'claimed') toast(`已领取 ${r.credit} 积分`);
+        else if (r.status === 'already') toast('今日已领取过');
+        else toast(r.msg || '领取失败', 'err');
+      } catch (e) {
+        toast(String(e), 'err');
+      } finally {
+        setClaiming(null);
+      }
+      await refreshCheckins();
+      await refreshCredit();
+    },
+    [refreshCheckins, refreshCredit],
+  );
+
+  const toggleAutoCheckin = async () => {
+    const next = !autoCheckin;
+    setAutoCheckin(next);
+    try {
+      await wbCheckinAutoSet(next);
+      toast(next ? '启动自动签到已开启' : '启动自动签到已关闭');
+    } catch (e) {
+      setAutoCheckin(!next);
+      toast(String(e), 'err');
+    }
+  };
+
   const refreshZc = useCallback(async () => {
     try {
       setZc(await zcodeOverview());
@@ -197,9 +252,12 @@ export function AccountsPage() {
   useEffect(() => {
     void refresh();
     void refreshCredit();
+    void refreshCheckins();
+    void wbCheckinAutoGet().then(setAutoCheckin).catch(() => {});
     void refreshZc();
     if (isAgentEnabled(enabledIds, 'zcode')) void refreshZcQuota();
     // WB 侧账号/进程可能随时变化（手动切号、启动退出），轮询保持实时
+    // （签到状态走网络按账号查询，只在上面的挂载/切号/手动刷新时更新，不进轮询）
     const t = setInterval(() => {
       void refresh();
       void refreshCredit();
@@ -207,12 +265,13 @@ export function AccountsPage() {
     }, 10_000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refresh, refreshCredit, refreshZc, refreshZcQuota, enabledIds]);
+  }, [refresh, refreshCredit, refreshCheckins, refreshZc, refreshZcQuota, enabledIds]);
 
   const manualRefresh = async () => {
     setRefreshing(true);
     const d = await refresh();
     await refreshCredit();
+    await refreshCheckins();
     await refreshZc();
     setRefreshing(false);
     if (d) toast('账号状态已刷新');
@@ -243,6 +302,23 @@ export function AccountsPage() {
         const killed = confirmKill;
         setMessage(`已切换到「${label}」${killed ? '（WorkBuddy 已关闭并重启）' : ''}`);
         toast(`已切换到「${label}」${killed ? '，WorkBuddy 已重启' : ''}`);
+        await refresh();
+        // 切号后自动查询该账号今日签到状态；未领取则自动补领（接口幂等）
+        try {
+          const cs = await wbCheckinStatus();
+          setCheckins(cs);
+          const d = await refresh();
+          const uid = d?.current?.uid;
+          const st = cs.find((x) => x.uid === uid);
+          if (uid && st && st.today_claimed === false) {
+            const cr: WbCheckinResult = await wbCheckinClaim(uid);
+            if (cr.status === 'claimed') toast(`已自动为新账号领取 ${cr.credit} 积分`);
+          }
+          setCheckins(await wbCheckinStatus());
+          await refreshCredit();
+        } catch {
+          /* 签到查询失败不影响切换流程 */
+        }
       }
       await refresh();
     } catch (e) {
@@ -281,6 +357,25 @@ export function AccountsPage() {
     try {
       await wbCreditSetTotal(n);
       toast(n > 0 ? `已设每月积分总额 ${n.toLocaleString()}` : '已清除总额度');
+      await refreshCredit();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /** 保存某账户的当前积分快照（0/空 = 清除该账户的余额设置） */
+  const saveBalance = async (uid: string, raw: string) => {
+    setEditingBalance(null);
+    const t = raw.trim();
+    if (!t) return;
+    const n = Number(t);
+    if (!Number.isFinite(n)) {
+      toast('积分必须是数字', 'err');
+      return;
+    }
+    try {
+      await wbCreditSetBalance(uid, n);
+      toast(n > 0 ? `已设该账户当前积分 ${n.toLocaleString()}（此后用量/领取自动增减）` : '已清除该账户余额设置');
       await refreshCredit();
     } catch (e) {
       setError(String(e));
@@ -379,15 +474,56 @@ export function AccountsPage() {
           uid {mask(s.uid)} · uin {mask(s.uin)} · 保存于 {s.saved_at}
           {!s.file_ok && <span style={{ color: 'var(--color-danger)' }}> · ⚠ 快照文件缺失</span>}
         </div>
-        {/* 积分：当日使用 / 账户剩余（按 uid 从 usage_events.credit 聚合） */}
+        {/* 积分：当日使用 / 账户剩余；账户单独设置过当前积分则按余额口径显示 */}
         {(() => {
           const c = creditAcct.find((x) => x.uid === s.uid);
-          if (!c) return null;
+          const st = checkins.find((x) => x.uid === s.uid);
+          // 该账号尚无任何用量/余额记录：只渲染签到状态 chip
+          if (!c) {
+            if (!st) return null;
+            return (
+              <div style={{ fontSize: 11, margin: '2px 0 6px', color: 'var(--color-text-2)' }}>
+                {st.today_claimed === true ? (
+                  <span className="chip ok" title={`本地记录 ${st.last_date} +${fmtInt(st.last_credit)}`}>
+                    今日已领{st.last_credit > 0 ? ` +${fmtInt(st.last_credit)}` : ''}
+                  </span>
+                ) : st.today_claimed === false ? (
+                  <span className="chip warn">今日未领</span>
+                ) : (
+                  <span className="chip off" title={st.error ?? '签到状态未知'}>
+                    签到 ?
+                  </span>
+                )}
+              </div>
+            );
+          }
           return (
             <div style={{ fontSize: 11, margin: '2px 0 6px', color: 'var(--color-text-2)' }}>
               当日使用积分{' '}
               <b style={{ fontFamily: 'Consolas, monospace' }}>{fmtInt(c.today_used)}</b>
-              {credit && credit.monthly_total > 0 ? (
+              {c.balance != null ? (
+                <>
+                  {' · '}账户剩余积分{' '}
+                  <b
+                    style={{
+                      fontFamily: 'Consolas, monospace',
+                      color:
+                        c.balance > 0 && c.used_since_set / c.balance > 0.8
+                          ? 'var(--color-danger)'
+                          : 'var(--color-primary)',
+                    }}
+                  >
+                    {fmtInt(c.remaining)}
+                  </b>
+                  <span
+                    style={{ color: 'var(--color-text-3)', cursor: 'pointer' }}
+                    title={`手动设置的当前积分快照 ${fmtInt(c.balance)}（${c.balance_set_at}），领取的积分自动入账`}
+                    onClick={() => setEditingBalance({ uid: s.uid, label: s.label, balance: c.balance })}
+                  >
+                    {' '}(设置于 {c.balance_set_at.slice(0, 10)} · 点此编辑)
+                  </span>
+                </>
+              ) : credit && credit.monthly_total > 0 ? (
                 <>
                   {' · '}账户剩余积分{' '}
                   <b
@@ -407,13 +543,65 @@ export function AccountsPage() {
                 </>
               ) : (
                 <span style={{ color: 'var(--color-text-3)' }}>
-                  {' '}· 本月已用 {fmtInt(c.month_used)}（设总额度后显示剩余）
+                  {' '}· 本月已用 {fmtInt(c.month_used)}（设总额度或单独设置积分后显示剩余）
                 </span>
+              )}
+              {/* 每日签到状态 chip */}
+              {st && (
+                <>
+                  {' · '}
+                  {st.today_claimed === true ? (
+                    <span className="chip ok" title={`本地记录 ${st.last_date} +${fmtInt(st.last_credit)}`}>
+                      今日已领{st.last_credit > 0 ? ` +${fmtInt(st.last_credit)}` : ''}
+                    </span>
+                  ) : st.today_claimed === false ? (
+                    <span className="chip warn">今日未领</span>
+                  ) : (
+                    <span className="chip off" title={st.error ?? '签到状态未知'}>
+                      签到 ?
+                    </span>
+                  )}
+                </>
               )}
             </div>
           );
         })()}
-        <div className="flex" style={{ gap: 8 }}>
+        <div className="flex" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {/* 每日领取 100 积分（走官方签到接口，幂等；用该账号槽位登录态直签，无需切换） */}
+          {(() => {
+            const st = checkins.find((x) => x.uid === s.uid);
+            const claimed = st?.today_claimed === true;
+            return (
+              <button
+                className={claimed ? 'btn gh' : 'btn p'}
+                title={
+                  claimed
+                    ? `今日已领取${st?.last_credit ? ` +${fmtInt(st.last_credit)}` : ''}`
+                    : '领取该账号的每日签到积分（第 1-6 天 +100，第 7 天 +1000）'
+                }
+                onClick={() => void doClaim(s.uid)}
+                disabled={busy || claiming === s.uid || claimed}
+              >
+                <span className={claiming === s.uid ? 'spinning' : ''} style={{ display: 'inline-block' }}>
+                  {claiming === s.uid ? '↻' : '🎁'}
+                </span>{' '}
+                {claimed ? '今日已领' : '领每日积分'}
+              </button>
+            );
+          })()}
+          {(() => {
+            const c = creditAcct.find((x) => x.uid === s.uid);
+            return (
+              <button
+                className="btn gh"
+                title="单独设置/编辑该账户的当前积分（作为余额基准，后续用量与领取自动增减）"
+                onClick={() => setEditingBalance({ uid: s.uid, label: s.label, balance: c?.balance ?? null })}
+                disabled={busy}
+              >
+                {'✎ 积分'}
+              </button>
+            );
+          })()}
           {isCurrent ? (
             <span className="btn gh" style={{ opacity: 0.6, cursor: 'default' }}>当前账号</span>
           ) : (
@@ -587,6 +775,14 @@ export function AccountsPage() {
         <button className="btn gh" onClick={() => setEditingTotal(true)} disabled={busy || wbOff}>
           {credit && credit.monthly_total > 0 ? '修改总额度' : '设置每月总额度'}
         </button>
+        <span
+          className={autoCheckin ? 'chip ok' : 'chip off'}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          title="AgentHub 启动时自动为全部 WB 账号领取每日积分（接口幂等，不会多领）"
+          onClick={() => void toggleAutoCheckin()}
+        >
+          {autoCheckin ? '启动自动签到 ✓' : '启动自动签到 ✕'}
+        </span>
         {wbSlots.length > 1 && (
           <span
             className="chip off"
@@ -750,6 +946,27 @@ export function AccountsPage() {
             if (label) void doSaveCurrent(label);
           }}
           onCancel={() => setNaming(false)}
+        />
+      )}
+      {editingBalance && (
+        <InputDialog
+          title={`账户积分 · ${editingBalance.label}`}
+          message={
+            editingBalance.balance != null
+              ? `当前积分快照 ${Math.round(editingBalance.balance).toLocaleString()}。输入新数值即以该值为基准，后续用量与每日领取自动增减。`
+              : '为此账户设置当前积分基准。此后每日用量与签到领取会自动增减，剩余 = 基准 − 设置后已用。'
+          }
+          fields={[
+            {
+              key: 'balance',
+              label: '当前积分',
+              defaultValue: editingBalance.balance != null ? String(Math.round(editingBalance.balance)) : '',
+              placeholder: '如：3200（清空并输入 0 可清除该设置）',
+            },
+          ]}
+          confirmLabel="保存"
+          onConfirm={(v) => void saveBalance(editingBalance.uid, v.balance ?? '')}
+          onCancel={() => setEditingBalance(null)}
         />
       )}
       {editingTotal && (

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod adapters;
+pub mod checkin;
 pub mod commands;
 pub mod fsutil;
 pub mod mcp;
@@ -56,6 +57,14 @@ pub fn run() {
             std::thread::spawn(move || {
                 if let Ok(s2) = store::Store::open() {
                     let _ = usage::collect_all(&s2, Some(&handle));
+                }
+            });
+
+            // 启动自动签到：遍历全部 WB 账号逐个领取每日积分（接口幂等；
+            // 「wb-auto-checkin」开关默认开，Plugin 岛停用 WB 时不执行）
+            std::thread::spawn(|| {
+                if let Ok(s2) = store::Store::open() {
+                    let _ = checkin::auto_checkin_all(&s2);
                 }
             });
 
@@ -134,6 +143,11 @@ pub fn run() {
             quota::wb_credit_summary,
             quota::wb_credit_by_account,
             quota::wb_credit_set_total,
+            quota::wb_credit_set_balance,
+            checkin::wb_checkin_status,
+            checkin::wb_checkin_claim,
+            checkin::wb_checkin_auto_get,
+            checkin::wb_checkin_auto_set,
             market::market_refresh,
             market::market_install,
             memory::memory_global_list,

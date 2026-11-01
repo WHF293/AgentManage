@@ -362,8 +362,48 @@ export interface WbAccountCredit {
   today_used: number;
   month_used: number;
   remaining: number;
+  /** 用户为本账户单独设置的当前积分快照（未设置 = null） */
+  balance: number | null;
+  /** 余额设置时间 */
+  balance_set_at: string;
+  /** 设置后的已用（剩余 = balance − used_since_set） */
+  used_since_set: number;
 }
 export const wbCreditByAccount = () => invoke<WbAccountCredit[]>('wb_credit_by_account');
+
+/** 每账户当前积分设置（0 或负数 = 清除） */
+export const wbCreditSetBalance = (uid: string, balance: number) =>
+  invoke<void>('wb_credit_set_balance', { input: { uid, balance } });
+
+// ─── WB 每日签到领积分 ───
+
+export interface WbCheckinStatus {
+  uid: string;
+  /** 今日是否已领取（null = 查询失败/未知） */
+  today_claimed: boolean | null;
+  /** 本地记录的最近领取日期与积分 */
+  last_date: string;
+  last_credit: number;
+  /** 凭据来源（当前登录态 / 槽位 xxx） */
+  source: string;
+  error: string | null;
+}
+
+export interface WbCheckinResult {
+  uid: string;
+  ok: boolean;
+  /** claimed=本次领取 / already=今日已领 / failed=失败 */
+  status: 'claimed' | 'already' | 'failed' | string;
+  credit: number;
+  msg: string;
+}
+
+export const wbCheckinStatus = () => invoke<WbCheckinStatus[]>('wb_checkin_status');
+export const wbCheckinClaim = (uid: string) =>
+  invoke<WbCheckinResult>('wb_checkin_claim', { input: { uid } });
+export const wbCheckinAutoGet = () => invoke<boolean>('wb_checkin_auto_get');
+export const wbCheckinAutoSet = (enabled: boolean) =>
+  invoke<void>('wb_checkin_auto_set', { input: { enabled } });
 
 // ─── M9 用量 ───
 

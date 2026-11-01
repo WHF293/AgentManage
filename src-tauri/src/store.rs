@@ -167,6 +167,21 @@ impl Store {
                  );",
             )
             .map_err(|e| format!("wb_model_entries 建表失败: {e}"))?;
+            // v1.10：WB 每账户积分余额 + 每日签到记录（Account 岛积分设置 / 每日领取 100 积分）
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS wb_checkins (
+                   uid TEXT PRIMARY KEY,
+                   last_date TEXT NOT NULL,
+                   last_credit REAL NOT NULL DEFAULT 0,
+                   claimed_at TEXT
+                 );
+                 CREATE TABLE IF NOT EXISTS wb_credit_balance (
+                   uid TEXT PRIMARY KEY,
+                   balance REAL NOT NULL,
+                   set_at TEXT NOT NULL
+                 );",
+            )
+            .map_err(|e| format!("wb_checkins/wb_credit_balance 建表失败: {e}"))?;
             // 内置双市场（WB 市场为占位：接口探测未果前降级本地扫描）
             conn.execute(
                 "INSERT OR IGNORE INTO skill_sources(id, name, type, url, enabled) VALUES
